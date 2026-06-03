@@ -1,0 +1,37 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Model weights (几百MB, 不进git)
+*.pt
+*.onnx
+*.pth
+*.engine
+
+# Training outputs
+runs/
+
+# Datasets (图片太多太大)
+datasets/
+data/
+
+# Output / predictions
+output/
+
+# uv lock (可重建，提交 pyproject.toml 就行)
+uv.lock
+
+# IDE / temp
+tmp/
+vedio/
+.python-version
+
+# System
+.claude/

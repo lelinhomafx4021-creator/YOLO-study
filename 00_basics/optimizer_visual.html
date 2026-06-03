@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>SGD vs Adam 优化器可视化 — 参数影响实测</title>
+<style>
+  body { font-family: 'Segoe UI', sans-serif; background: #1a1a2e; color: #eee; padding: 15px; }
+  h1 { text-align: center; color: #00d4ff; margin-bottom: 0; }
+  .subtitle { text-align: center; color: #888; margin-bottom: 15px; font-size: 14px; }
+  .main { display: flex; gap: 15px; flex-wrap: wrap; justify-content: center; }
+  .panel { background: #16213e; border-radius: 10px; padding: 15px; min-width: 400px; }
+  .panel h3 { margin: 0 0 8px 0; color: #fdcb6e; font-size: 15px; }
+  .panel h3 span { font-size: 12px; font-weight: normal; }
+  canvas { border-radius: 6px; background: #0a0a1a; display: block; margin: 0 auto; }
+  .controls { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; font-size: 13px; }
+  .controls label { color: #aaa; }
+  .controls input, .controls select { width: 80px; padding: 3px; border-radius: 4px; border: 1px solid #555; background: #0f3460; color: #fff; }
+  button { background: #e94560; color: #fff; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 13px; margin: 3px; }
+  button:hover { background: #ff6b81; }
+  .legend { display: flex; gap: 15px; margin: 8px 0; font-size: 12px; flex-wrap: wrap; }
+  .legend-item { display: flex; align-items: center; gap: 4px; }
+  .legend-dot { width: 10px; height: 10px; border-radius: 50%; }
+  .result-bar { display: flex; gap: 10px; margin-top: 10px; font-size: 13px; flex-wrap: wrap; }
+  .result-card { background: #0f3460; padding: 8px 12px; border-radius: 6px; min-width: 120px; text-align: center; }
+  .result-card .val { font-size: 1.3em; font-weight: bold; }
+  .note-box { background: #2d3436; border-left: 3px solid #fdcb6e; padding: 10px 14px; margin: 10px 0; border-radius: 0 8px 8px 0; font-size: 13px; max-width: 860px; }
+  table { border-collapse: collapse; font-size: 12px; width: 100%; margin: 8px 0; }
+  th { background: #0f3460; padding: 6px 10px; text-align: left; color: #00d4ff; }
+  td { padding: 5px 10px; border-bottom: 1px solid #333; }
+  .highlight { color: #fdcb6e; }
+</style>
+</head>
+<body>
+
+<h1>SGD vs Adam — 优化器可视化对比</h1>
+<div class="subtitle">同一个 Loss 曲面，不同优化器走的路完全不同</div>
+
+<div class="main">
+  <!-- SGD 面板 -->
+  <div class="panel">
+    <h3>🔵 SGD <span>(Stochastic Gradient Descent)</span></h3>
+    <div class="legend">
+      <div class="legend-item"><div class="legend-dot" style="background:#00d4ff;"></div> lr=0.01</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#74b9ff;"></div> lr=0.1</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#a29bfe;"></div> lr=0.01 + momentum</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#fd79a8;"></div> lr=0.01 + wd</div>
+    </div>
+    <canvas id="sgdCanvas" width="400" height="400"></canvas>
+    <div class="controls">
+      <label>lr=</label><input type="range" id="sgdLr" min="1" max="50" value="10" step="1" oninput="updateAll()">
+        <span id="sgdLrVal">0.010</span>
+      <label>momentum=</label><input type="range" id="sgdMom" min="0" max="99" value="0" step="1" oninput="updateAll()">
+        <span id="sgdMomVal">0.0</span>
+      <label>weight_decay=</label><input type="range" id="sgdWd" min="0" max="100" value="0" step="1" oninput="updateAll()">
+        <span id="sgdWdVal">0.0</span>
+    </div>
+    <div class="result-bar" id="sgdResults"></div>
+  </div>
+
+  <!-- Adam 面板 -->
+  <div class="panel">
+    <h3>🟠 Adam <span>(Adaptive Moment Estimation)</span></h3>
+    <div class="legend">
+      <div class="legend-item"><div class="legend-dot" style="background:#e17055;"></div> lr=0.001</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#fdcb6e;"></div> lr=0.01</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#e17055; opacity:0.4;"></div> lr=0.001 + wd</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#00b894;"></div> lr=0.01 + wd</div>
+    </div>
+    <canvas id="adamCanvas" width="400" height="400"></canvas>
+    <div class="controls">
+      <label>lr=</label><input type="range" id="adamLr" min="1" max="50" value="1" step="1" oninput="updateAll()">
+        <span id="adamLrVal">0.001</span>
+      <label>β₁=</label><input type="range" id="adamB1" min="80" max="99" value="90" step="1" oninput="updateAll()">
+        <span id="adamB1Val">0.90</span>
+      <label>weight_decay=</label><input type="range" id="adamWd" min="0" max="100" value="0" step="1" oninput="updateAll()">
+        <span id="adamWdVal">0.0</span>
+    </div>
+    <div class="result-bar" id="adamResults"></div>
+  </div>
+</div>
+
+<!-- 总结面板 -->
+<div style="max-width:860px; margin: 15px auto;">
+  <div class="panel" style="margin-bottom:10px;">
+    <h3>📊 本轮对比总结</h3>
+    <div style="display:flex; gap:15px; flex-wrap:wrap;">
+      <table style="width:auto; flex:1; min-width: 300px;">
+        <tr><th></th><th>SGD</th><th>Adam</th></tr>
+        <tr><td>lr 敏感度</td><td id="sgd-sens">-</td><td id="adam-sens">-</td></tr>
+        <tr><td>收敛步数</td><td id="sgd-steps">-</td><td id="adam-steps">-</td></tr>
+        <tr><td>路径平滑度</td><td id="sgd-smooth">-</td><td id="adam-smooth">-</td></tr>
+        <tr><td>weight_decay 效果</td><td id="sgd-wd">-</td><td id="adam-wd">-</td></tr>
+      </table>
+      <div style="flex:1; min-width:250px; font-size:13px;">
+        <div class="note-box" style="margin-top:0;">
+          <strong>weight_decay 到底在干什么：</strong><br>
+          每次更新时，额外把 weight 往 0 拉一把。<br>
+          SGD: <code>θ = θ - lr×grad - lr×wd×θ</code><br>
+          AdamW: <code>θ = θ - lr×adapt - lr×wd×θ</code><br>
+          效果：<strong>路径更短、更靠近原点</strong>→ 参数更小 → 防止过拟合。<br>
+          对 Adam 来说，用 <strong>AdamW</strong>（解耦 weight_decay）效果更好。
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// Loss Landscape: 一个有方向性差异的碗 — 模拟真实深度学习的 ill-conditioned 问题
+// z = 0.1*(x-2)^2 + (y+1)^2 + 0.3*sin(2*x)*cos(2*y)
+// x 方向梯度小（平坦），y 方向梯度大（陡峭）
+// ============================================================
+function loss(x, y) {
+  return 0.1 * (x - 2) * (x - 2) + 1.0 * (y + 1) * (y + 1) + 0.3 * Math.sin(2 * x) * Math.cos(2 * y);
+}
+
+function grad(x, y) {
+  const dx = 0.2 * (x - 2) + 0.6 * Math.cos(2 * x) * Math.cos(2 * y);
+  const dy = 2.0 * (y + 1) - 0.6 * Math.sin(2 * x) * Math.sin(2 * y);
+  return [dx, dy];
+}
+
+// 优化起点
+const START_X = -4.0, START_Y = 3.5;
+const TARGET_X = 2.0, TARGET_Y = -1.0; // 最优解位置
+
+// ============================================================
+// Contour 绘制
+// ============================================================
+function drawContour(ctx, w, h) {
+  const xMin = -5, xMax = 5, yMin = -5, yMax = 5;
+
+  // 计算 loss 范围
+  const vals = [];
+  for (let i = 0; i <= 50; i++) {
+    for (let j = 0; j <= 50; j++) {
+      const x = xMin + (xMax - xMin) * i / 50;
+      const y = yMin + (yMax - yMin) * j / 50;
+      vals.push(loss(x, y));
+    }
+  }
+  const minVal = Math.min(...vals);
+  const maxVal = Math.max(...vals);
+
+  const imageData = ctx.createImageData(w, h);
+  for (let px = 0; px < w; px++) {
+    for (let py = 0; py < h; py++) {
+      const x = xMin + (xMax - xMin) * px / w;
+      const y = yMin + (yMax - yMin) * py / h;
+      const z = loss(x, y);
+      const t = (z - minVal) / (maxVal - minVal + 0.001);
+      // 深蓝→浅蓝渐变色
+      const r = Math.floor(20 + t * 30);
+      const g = Math.floor(20 + t * 50);
+      const b = Math.floor(80 + t * 100);
+      const idx = (py * w + px) * 4;
+      imageData.data[idx] = r;
+      imageData.data[idx+1] = g;
+      imageData.data[idx+2] = b;
+      imageData.data[idx+3] = 255;
+    }
+  }
+  ctx.putImageData(imageData, 0, 0);
+
+  // 画几条等高线
+  ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+  ctx.lineWidth = 1;
+  for (let level = minVal; level <= maxVal; level += (maxVal - minVal) / 12) {
+    ctx.beginPath();
+    let first = true;
+    for (let px = 0; px < w; px += 3) {
+      for (let py = 0; py < h; py += 3) {
+        const x = xMin + (xMax - xMin) * px / w;
+        const y = yMin + (yMax - yMin) * py / h;
+        const z = loss(x, y);
+        if (Math.abs(z - level) < (maxVal - minVal) * 0.03) {
+          const sx = px, sy = py;
+          if (first) { ctx.moveTo(sx, sy); first = false; }
+          else { ctx.lineTo(sx, sy); }
+        }
+      }
+    }
+    ctx.stroke();
+  }
+
+  // 标注
+  ctx.fillStyle = '#fff';
+  ctx.font = '11px sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText('Loss 曲面（颜色越亮=loss越高）', 8, 14);
+  ctx.fillText('← x方向平坦', 8, h/2);
+  ctx.fillText('y方向陡峭 ↑↓', w/2 - 30, 20);
+
+  // 标记最优解
+  const optX = (TARGET_X - xMin) / (xMax - xMin) * w;
+  const optY = (TARGET_Y - yMin) / (yMax - yMin) * h;
+  ctx.fillStyle = '#00ff88';
+  ctx.beginPath();
+  ctx.arc(optX, optY, 5, 0, Math.PI*2);
+  ctx.fill();
+  ctx.font = '10px sans-serif';
+  ctx.fillText('最优解', optX + 8, optY + 4);
+}
+
+// ============================================================
+// 坐标转换
+// ============================================================
+function toScreen(x, y, w, h) {
+  const xMin = -5, xMax = 5, yMin = -5, yMax = 5;
+  return {
+    sx: (x - xMin) / (xMax - xMin) * w,
+    sy: (y - yMin) / (yMax - yMin) * h,
+  };
+}
+
+// ============================================================
+// SGD 优化
+// ============================================================
+function sgdOptimize(lr, momentum, wd, steps) {
+  let x = START_X, y = START_Y;
+  let vx = 0, vy = 0;
+  const path = [[x, y]];
+
+  for (let i = 0; i < steps; i++) {
+    const [gx, gy] = grad(x, y);
+
+    // weight_decay: 把参数往 0 拉
+    const wdx = wd * x;
+    const wdy = wd * y;
+
+    // momentum
+    if (momentum > 0) {
+      vx = momentum * vx + (gx + wdx);
+      vy = momentum * vy + (gy + wdy);
+      x -= lr * vx;
+      y -= lr * vy;
+    } else {
+      x -= lr * (gx + wdx);
+      y -= lr * (gy + wdy);
+    }
+    path.push([x, y]);
+
+    // 收敛检查
+    const dist = Math.sqrt((x - TARGET_X)**2 + (y - TARGET_Y)**2);
+    if (dist < 0.05) break;
+  }
+  return path;
+}
+
+// ============================================================
+// Adam 优化
+// ============================================================
+function adamOptimize(lr, b1, b2, eps, wd, steps) {
+  let x = START_X, y = START_Y;
+  let mx = 0, my = 0;   // 一阶矩
+  let vx = 0, vy = 0;   // 二阶矩
+  const path = [[x, y]];
+  let t = 0;
+
+  for (let i = 0; i < steps; i++) {
+    t++;
+    const [gx, gy] = grad(x, y);
+
+    // weight_decay（AdamW 风格：解耦）
+    const wdx = wd * x;
+    const wdy = wd * y;
+
+    // 一阶矩估计（动量）
+    mx = b1 * mx + (1 - b1) * (gx + wdx);
+    my = b1 * my + (1 - b1) * (gy + wdy);
+
+    // 二阶矩估计（自适应学习率）
+    vx = b2 * vx + (1 - b2) * (gx + wdx) * (gx + wdx);
+    vy = b2 * vy + (1 - b2) * (gy + wdy) * (gy + wdy);
+
+    // 偏差校正
+    const mx_hat = mx / (1 - Math.pow(b1, t));
+    const my_hat = my / (1 - Math.pow(b1, t));
+    const vx_hat = vx / (1 - Math.pow(b2, t));
+    const vy_hat = vy / (1 - Math.pow(b2, t));
+
+    x -= lr * mx_hat / (Math.sqrt(vx_hat) + eps);
+    y -= lr * my_hat / (Math.sqrt(vy_hat) + eps);
+
+    path.push([x, y]);
+
+    const dist = Math.sqrt((x - TARGET_X)**2 + (y - TARGET_Y)**2);
+    if (dist < 0.005) break;
+  }
+  return path;
+}
+
+// ============================================================
+// 画路径
+// ============================================================
+function drawPath(ctx, path, color, w, h, alpha) {
+  if (path.length < 2) return;
+  ctx.strokeStyle = color;
+  ctx.globalAlpha = alpha || 0.9;
+  ctx.lineWidth = 2.5;
+  ctx.setLineDash([]);
+  ctx.beginPath();
+  const start = toScreen(path[0][0], path[0][1], w, h);
+  ctx.moveTo(start.sx, start.sy);
+  for (let i = 1; i < path.length; i++) {
+    const p = toScreen(path[i][0], path[i][1], w, h);
+    ctx.lineTo(p.sx, p.sy);
+  }
+  ctx.stroke();
+
+  // 起点
+  ctx.globalAlpha = 1;
+  const p0 = toScreen(path[0][0], path[0][1], w, h);
+  ctx.fillStyle = '#fff';
+  ctx.beginPath(); ctx.arc(p0.sx, p0.sy, 5, 0, Math.PI*2); ctx.fill();
+  ctx.font = '10px sans-serif';
+  ctx.fillText('起点', p0.sx + 8, p0.sy + 12);
+
+  // 终点
+  const last = path[path.length-1];
+  const pe = toScreen(last[0], last[1], w, h);
+  ctx.fillStyle = color;
+  ctx.beginPath(); ctx.arc(pe.sx, pe.sy, 6, 0, Math.PI*2); ctx.fill();
+  ctx.font = 'bold 10px sans-serif';
+  ctx.fillText(`${path.length-1}步`, pe.sx + 8, pe.sy - 4);
+}
+
+// ============================================================
+// 主绘制 — 4 条路径对比
+// ============================================================
+function drawSGD() {
+  const canvas = document.getElementById('sgdCanvas');
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width, h = canvas.height;
+  ctx.clearRect(0, 0, w, h);
+  drawContour(ctx, w, h);
+
+  const lr = parseFloat(document.getElementById('sgdLrVal').textContent);
+  const mom = parseFloat(document.getElementById('sgdMomVal').textContent);
+  const wd = parseFloat(document.getElementById('sgdWdVal').textContent);
+
+  // 4 条路径：默认 lr → 高 lr → 带 momentum → 带 wd
+  const p1 = sgdOptimize(lr, mom, wd, 200);           // 当前设置
+  const p2 = sgdOptimize(lr * 10, 0, 0, 200);          // 高 lr
+  const p3 = sgdOptimize(lr, 0.9, 0, 200);             // 带 momentum
+  const p4 = sgdOptimize(lr, 0, 0.1, 200);             // 带 wd
+
+  drawPath(ctx, p1, '#00d4ff', w, h);   // 当前
+  drawPath(ctx, p2, '#74b9ff', w, h, 0.5);
+  drawPath(ctx, p3, '#a29bfe', w, h, 0.7);
+  drawPath(ctx, p4, '#fd79a8', w, h, 0.7);
+
+  // 结果卡片
+  const card = document.getElementById('sgdResults');
+  const names = ['当前设置', 'lr×10', '+momentum', '+wd'];
+  const colors = ['#00d4ff', '#74b9ff', '#a29bfe', '#fd79a8'];
+  const paths = [p1, p2, p3, p4];
+  const vals = paths.map(p => loss(p[p.length-1][0], p[p.length-1][1]));
+  card.innerHTML = paths.map((p, i) => `
+    <div class="result-card" style="border-left:3px solid ${colors[i]}">
+      <div style="color:#aaa;">${names[i]}</div>
+      <div class="val" style="color:${colors[i]}">${vals[i].toFixed(3)}</div>
+      <div style="color:#888;">${p.length-1} 步</div>
+    </div>`).join('');
+
+  // 更新总结表
+  const d = Math.sqrt((paths[0][paths[0].length-1][0]-TARGET_X)**2 + (paths[0][paths[0].length-1][1]-TARGET_Y)**2);
+  document.getElementById('sgd-sens').innerHTML = lr > 0.05 ? '<span style="color:#e94560;">极高 — 大lr震荡</span>' : '<span style="color:#fdcb6e;">高 — 需精确调</span>';
+  document.getElementById('sgd-steps').innerHTML = `${paths[0].length-1} 步`;
+  document.getElementById('sgd-smooth').innerHTML = mom > 0 ? '<span style="color:#00d4ff;">平滑（momentum 加持）</span>' : '<span style="color:#fdcb6e;">锯齿状</span>';
+  document.getElementById('sgd-wd').innerHTML = wd > 0 ? '<span style="color:#00b894;">路径更短</span>' : '<span style="color:#888;">未启用</span>';
+}
+
+function drawAdam() {
+  const canvas = document.getElementById('adamCanvas');
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width, h = canvas.height;
+  ctx.clearRect(0, 0, w, h);
+  drawContour(ctx, w, h);
+
+  const lr = parseFloat(document.getElementById('adamLrVal').textContent);
+  const b1 = parseFloat(document.getElementById('adamB1Val').textContent);
+  const wd = parseFloat(document.getElementById('adamWdVal').textContent);
+
+  const p1 = adamOptimize(lr, b1, 0.999, 1e-8, wd, 200);      // 当前
+  const p2 = adamOptimize(lr * 10, b1, 0.999, 1e-8, 0, 200);   // 高 lr
+  const p3 = adamOptimize(lr, b1, 0.999, 1e-8, 0.15, 200);     // +wd
+  const p4 = adamOptimize(lr * 10, b1, 0.999, 1e-8, 0.15, 200);// 高 lr + wd
+
+  drawPath(ctx, p1, '#e17055', w, h);
+  drawPath(ctx, p2, '#fdcb6e', w, h, 0.5);
+  drawPath(ctx, p3, '#e17055', w, h, 0.35);   // 半透明: lr低+wd
+  drawPath(ctx, p4, '#00b894', w, h, 0.7);
+
+  const card = document.getElementById('adamResults');
+  const names = ['当前设置', 'lr×10', '+wd', 'lr×10+wd'];
+  const colors = ['#e17055', '#fdcb6e', '#e17055', '#00b894'];
+  const paths = [p1, p2, p3, p4];
+  const vals = paths.map(p => loss(p[p.length-1][0], p[p.length-1][1]));
+  card.innerHTML = paths.map((p, i) => `
+    <div class="result-card" style="border-left:3px solid ${colors[i]}; ${i===2?'opacity:0.5;':''}">
+      <div style="color:#aaa;">${names[i]}</div>
+      <div class="val" style="color:${colors[i]}">${vals[i].toFixed(4)}</div>
+      <div style="color:#888;">${p.length-1} 步</div>
+    </div>`).join('');
+
+  document.getElementById('adam-sens').innerHTML = '<span style="color:#00b894;">低 — lr×10 仍稳定</span>';
+  document.getElementById('adam-steps').innerHTML = `${paths[0].length-1} 步`;
+  document.getElementById('adam-smooth').innerHTML = '<span style="color:#00b894;">平滑（自适应）</span>';
+  document.getElementById('adam-wd').innerHTML = wd > 0 ? '<span style="color:#00b894;">AdamW 风格，路径收敛更快</span>' : '<span style="color:#888;">未启用</span>';
+}
+
+function updateAll() {
+  const sgdLr = parseFloat(document.getElementById('sgdLr').value) / 1000;
+  const sgdMom = parseInt(document.getElementById('sgdMom').value) / 100;
+  const sgdWd = parseInt(document.getElementById('sgdWd').value) / 1000;
+  document.getElementById('sgdLrVal').textContent = sgdLr.toFixed(3);
+  document.getElementById('sgdMomVal').textContent = sgdMom.toFixed(2);
+  document.getElementById('sgdWdVal').textContent = sgdWd.toFixed(3);
+
+  const adamLr = parseFloat(document.getElementById('adamLr').value) / 1000;
+  const adamB1 = parseInt(document.getElementById('adamB1').value) / 100;
+  const adamWd = parseInt(document.getElementById('adamWd').value) / 1000;
+  document.getElementById('adamLrVal').textContent = adamLr.toFixed(3);
+  document.getElementById('adamB1Val').textContent = adamB1.toFixed(2);
+  document.getElementById('adamWdVal').textContent = adamWd.toFixed(3);
+
+  drawSGD();
+  drawAdam();
+}
+
+updateAll();
+</script>
+
+</body>
+</html>

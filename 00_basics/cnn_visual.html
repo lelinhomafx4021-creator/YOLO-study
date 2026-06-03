@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>CNN 前向传播可视化 — 从像素到分类</title>
+<style>
+  body { font-family: 'Segoe UI', sans-serif; background: #1a1a2e; color: #eee; padding: 20px; line-height: 1.8; }
+  h1 { text-align: center; color: #00d4ff; margin-bottom: 5px; }
+  .subtitle { text-align: center; color: #888; margin-bottom: 30px; }
+  .stage { background: #16213e; border-radius: 12px; padding: 25px; margin: 20px 0; border-left: 4px solid #00d4ff; }
+  .stage h2 { color: #00d4ff; margin-top: 0; }
+  .tensor { display: inline-block; background: #0f3460; color: #e94560; padding: 3px 10px; border-radius: 5px; font-family: monospace; font-weight: bold; }
+  .shape { display: inline-block; background: #e94560; color: #fff; padding: 2px 8px; border-radius: 4px; font-family: monospace; font-size: 0.9em; margin: 0 3px; }
+  table { border-collapse: collapse; margin: 15px 0; width: 100%; }
+  th { background: #0f3460; color: #00d4ff; padding: 10px; text-align: left; }
+  td { padding: 10px; border-bottom: 1px solid #333; }
+  .arrow { text-align: center; font-size: 2em; color: #e94560; margin: 5px 0; }
+  .grid-container { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; margin: 15px 0; }
+  .grid-item { text-align: center; }
+  .pixel-grid { display: grid; gap: 1px; margin: 5px auto; }
+  .pixel { width: 8px; height: 8px; border-radius: 1px; }
+  .kernel-demo { display: flex; gap: 20px; align-items: center; justify-content: center; flex-wrap: wrap; margin: 15px 0; }
+  .kernel-box { background: #0f3460; padding: 15px; border-radius: 8px; text-align: center; }
+  .kernel-grid { display: grid; grid-template-columns: repeat(3, 30px); gap: 2px; }
+  .kernel-cell { width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; font-family: monospace; font-size: 12px; border-radius: 3px; }
+  .input-cell { background: #1a3a5c; }
+  .weight-cell { background: #533483; }
+  .output-cell { background: #e94560; color: #fff; font-weight: bold; }
+  .calc-step { background: #0f3460; padding: 15px; border-radius: 8px; margin: 10px 0; font-family: monospace; font-size: 14px; }
+  .note { background: #2d3436; border-left: 3px solid #fdcb6e; padding: 12px; margin: 10px 0; border-radius: 0 8px 8px 0; font-size: 0.95em; }
+  .vs-table td:first-child { font-weight: bold; color: #00d4ff; width: 200px; }
+  canvas { border-radius: 8px; margin: 10px 0; }
+  .controls { text-align: center; margin: 20px 0; }
+  button { background: #e94560; color: #fff; border: none; padding: 10px 25px; border-radius: 6px; cursor: pointer; font-size: 16px; margin: 5px; }
+  button:hover { background: #ff6b81; }
+  #stage-detail { background: #0f3460; padding: 20px; border-radius: 8px; margin: 20px 0; min-height: 300px; position: relative; }
+  .conv-anim { display: flex; gap: 20px; align-items: flex-start; justify-content: center; flex-wrap: wrap; }
+  .conv-anim canvas { border: 1px solid #333; }
+  .highlight { color: #fdcb6e; font-weight: bold; }
+  .formula { background: #0f3460; padding: 8px 15px; border-radius: 6px; font-family: monospace; display: inline-block; margin: 5px; }
+</style>
+</head>
+<body>
+
+<h1>CNN 前向传播全过程</h1>
+<div class="subtitle">从 RGB 图像到分类结果 — 每一步的数学原理</div>
+
+<!-- ============================================ -->
+<!-- 阶段 0：输入 -->
+<!-- ============================================ -->
+<div class="stage">
+  <h2>📥 第0步：输入图像</h2>
+  <p>你喂给模型的是一批 CIFAR-10 图片。假设 batch_size=64：</p>
+  <div style="text-align:center; margin: 15px 0;">
+    <span class="tensor">X</span> 形状 = <span class="shape">[64, 3, 32, 32]</span>
+  </div>
+  <table>
+    <tr><th>维度</th><th>含义</th><th>值</th></tr>
+    <tr><td>第0维</td><td>batch 大小（几张图）</td><td>64</td></tr>
+    <tr><td>第1维</td><td>通道数（RGB = 红绿蓝）</td><td>3</td></tr>
+    <tr><td>第2维</td><td>图像高度（像素）</td><td>32</td></tr>
+    <tr><td>第3维</td><td>图像宽度（像素）</td><td>32</td></tr>
+  </table>
+  <div class="note">
+    <strong>关键理解：</strong>一张图不是 1024 个独立数字，而是 <strong>3 层 32×32 矩阵叠在一起</strong>。
+    每个位置(x,y)有3个值——RGB三色。这跟 Excel 里 3 个 sheet 叠加一样。
+  </div>
+
+  <canvas id="inputCanvas" width="200" height="200" style="display:block; margin: 10px auto;"></canvas>
+  <div style="text-align:center; font-size:12px; color:#888;">模拟 CIFAR-10 图片 — 3 个通道独立显示</div>
+</div>
+
+<div class="arrow">⬇</div>
+
+<!-- ============================================ -->
+<!-- 阶段 1：第一个 Conv2d -->
+<!-- ============================================ -->
+<div class="stage">
+  <h2>🔍 第1步：Conv2d(3→16, kernel=3, padding=1)</h2>
+  <p>这是整个网络<strong>最关键的一步</strong>——用 16 个"模式探测器"扫遍整张图。</p>
+
+  <h3>每个卷积核是什么？</h3>
+  <p>一个核 = 一个 <strong>3×3×3</strong> 的小参数块（27 个数 + 1 个偏置）。它对图上一个 3×3 区域做"加权求和"。</p>
+
+  <div class="kernel-demo">
+    <div class="kernel-box">
+      <p style="color:#fdcb6e;">输入图上的 3×3 区域<br>(3 通道, 共 27 个数)</p>
+      <div style="display:flex; gap:5px;">
+        <div class="kernel-grid">
+          <div class="kernel-cell input-cell">1</div><div class="kernel-cell input-cell">2</div><div class="kernel-cell input-cell">3</div>
+          <div class="kernel-cell input-cell">4</div><div class="kernel-cell input-cell">5</div><div class="kernel-cell input-cell">6</div>
+          <div class="kernel-cell input-cell">7</div><div class="kernel-cell input-cell">8</div><div class="kernel-cell input-cell">9</div>
+          <div style="font-size:10px;color:#888;text-align:center;grid-column:1/4;">R 通道</div>
+        </div>
+        <div class="kernel-grid">
+          <div class="kernel-cell input-cell">0</div><div class="kernel-cell input-cell">1</div><div class="kernel-cell input-cell">0</div>
+          <div class="kernel-cell input-cell">1</div><div class="kernel-cell input-cell">0</div><div class="kernel-cell input-cell">1</div>
+          <div class="kernel-cell input-cell">0</div><div class="kernel-cell input-cell">1</div><div class="kernel-cell input-cell">0</div>
+          <div style="font-size:10px;color:#888;text-align:center;grid-column:1/4;">G 通道</div>
+        </div>
+        <div class="kernel-grid">
+          <div class="kernel-cell input-cell">2</div><div class="kernel-cell input-cell">2</div><div class="kernel-cell input-cell">2</div>
+          <div class="kernel-cell input-cell">1</div><div class="kernel-cell input-cell">1</div><div class="kernel-cell input-cell">1</div>
+          <div class="kernel-cell input-cell">0</div><div class="kernel-cell input-cell">0</div><div class="kernel-cell input-cell">0</div>
+          <div style="font-size:10px;color:#888;text-align:center;grid-column:1/4;">B 通道</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="font-size:2em; color:#e94560;">⊙</div>
+
+    <div class="kernel-box">
+      <p style="color:#fdcb6e;">核 K₁ 的权重<br>(27 个数, 训练自动学来)</p>
+      <div style="display:flex; gap:5px;">
+        <div class="kernel-grid">
+          <div class="kernel-cell weight-cell"> 1</div><div class="kernel-cell weight-cell"> 0</div><div class="kernel-cell weight-cell">-1</div>
+          <div class="kernel-cell weight-cell"> 1</div><div class="kernel-cell weight-cell"> 0</div><div class="kernel-cell weight-cell">-1</div>
+          <div class="kernel-cell weight-cell"> 1</div><div class="kernel-cell weight-cell"> 0</div><div class="kernel-cell weight-cell">-1</div>
+        </div>
+        <div class="kernel-grid">
+          <div class="kernel-cell weight-cell"> 0</div><div class="kernel-cell weight-cell"> 0</div><div class="kernel-cell weight-cell"> 0</div>
+          <div class="kernel-cell weight-cell"> 0</div><div class="kernel-cell weight-cell"> 0</div><div class="kernel-cell weight-cell"> 0</div>
+          <div class="kernel-cell weight-cell"> 0</div><div class="kernel-cell weight-cell"> 0</div><div class="kernel-cell weight-cell"> 0</div>
+        </div>
+        <div class="kernel-grid">
+          <div class="kernel-cell weight-cell"> 0</div><div class="kernel-cell weight-cell"> 0</div><div class="kernel-cell weight-cell"> 0</div>
+          <div class="kernel-cell weight-cell"> 0</div><div class="kernel-cell weight-cell"> 0</div><div class="kernel-cell weight-cell"> 0</div>
+          <div class="kernel-cell weight-cell"> 0</div><div class="kernel-cell weight-cell"> 0</div><div class="kernel-cell weight-cell"> 0</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="font-size:2em; color:#e94560;">=</div>
+
+    <div class="kernel-box">
+      <p style="color:#00d4ff;">输出值 (1个数)</p>
+      <div class="output-cell" style="width:50px;height:50px;display:flex;align-items:center;justify-content:center;font-size:18px;">-6</div>
+    </div>
+  </div>
+
+  <div class="calc-step">
+    <strong>计算过程（逐元素乘再求和）：</strong><br>
+    = 1×1 + 2×0 + 3×(-1) + 4×1 + 5×0 + 6×(-1) + 7×1 + 8×0 + 9×(-1)  <span style="color:#888;">← R通道贡献</span><br>
+    + 0×0 + 1×0 + 0×0 + 1×0 + 0×0 + 1×0 + 0×0 + 1×0 + 0×0              <span style="color:#888;">← G通道贡献 (全是0×0)</span><br>
+    + 2×0 + 2×0 + 2×0 + 1×0 + 1×0 + 1×0 + 0×0 + 0×0 + 0×0              <span style="color:#888;">← B通道贡献 (全是0×0)</span><br>
+    + bias                                                                  <span style="color:#888;">← 偏置项</span><br>
+    = <span style="color:#e94560;font-weight:bold;">-6</span> (这个核检测到了"竖直边缘"！)
+  </div>
+
+  <h3>滑动：在 32×32 个位置各算一次</h3>
+  <canvas id="slideCanvas" width="500" height="180" style="display:block; margin: 15px auto;"></canvas>
+
+  <h3>16 个核 = 16 张输出特征图</h3>
+  <div class="grid-container" id="featureMaps"></div>
+
+  <div class="note">
+    <strong>每个核学会了检测一种模式。</strong>核1可能检测竖直边缘→遇到边缘输出大正值。核5可能检测红→蓝过渡。
+    <strong>这些不是人指定的，是训练学出来的。</strong>你只说"给我16个核"，数据决定它们各自学会检测什么。
+    <br><br>
+    <span class="tensor">输出形状</span> = <span class="shape">[64, 16, 32, 32]</span>
+    padding=1 保持尺寸不变：32×32 → 32×32
+  </div>
+</div>
+
+<div class="arrow">⬇</div>
+
+<!-- ============================================ -->
+<!-- 阶段 2：ReLU + MaxPool -->
+<!-- ============================================ -->
+<div class="stage">
+  <h2>⚡ 第2步：ReLU() — 负数归零</h2>
+  <p>逐个元素操作：<span class="formula">ReLU(z) = max(0, z)</span></p>
+  <div class="calc-step">
+    [0.8, -0.3, 0.5, -1.2, 0.1]  ──ReLU──▶  [0.8, <span style="color:#e94560;">0</span>, 0.5, <span style="color:#e94560;">0</span>, 0.1]
+  </div>
+  <p>只保留"激活"的信号，负的扔掉。形状不变。</p>
+
+  <h2>📐 第3步：MaxPool2d(2) — 压缩</h2>
+  <p>每 2×2 区域只保留最大值，步长=2。</p>
+  <canvas id="poolCanvas" width="400" height="150" style="display:block; margin: 15px auto;"></canvas>
+  <p>32×32 → <strong>16×16</strong>，图变小一半，但每个区域最显著的特征被保留。</p>
+
+  <span class="tensor">形状</span> = <span class="shape">[64, 16, 16, 16]</span>
+</div>
+
+<div class="arrow">⬇</div>
+
+<!-- ============================================ -->
+<!-- 阶段 3：第二个卷积栈 -->
+<!-- ============================================ -->
+<div class="stage">
+  <h2>🔍 第4步：第二个 Conv2d(16→32, kernel=3) + ReLU + MaxPool</h2>
+  <p>和第一步<strong>原理完全一样</strong>，只是：</p>
+  <ul>
+    <li>输入从 3 通道变成了 <strong>16 通道</strong>（不是 RGB 了，是上一层的特征图）</li>
+    <li>输出 <strong>32 个特征图</strong></li>
+    <li>每个核现在是 <strong>16 通道 × 3×3 = 144 个参数</strong></li>
+  </ul>
+  <div class="note">
+    <strong>直觉：</strong>第一层卷积从像素里找"低级模式"（边缘、颜色、纹理），
+    第二层卷积在"低级模式"之上组合出"中级模式"（耳朵形状、轮子、眼睛）。
+    层越深，看到的模式越抽象。
+  </div>
+  <span class="tensor">形状变化</span>: <span class="shape">[64,16,16,16]</span> → Conv → <span class="shape">[64,32,16,16]</span> → ReLU → <span class="shape">不变</span> → MaxPool → <span class="shape">[64,32,8,8]</span>
+</div>
+
+<div class="arrow">⬇</div>
+
+<!-- ============================================ -->
+<!-- 阶段 4：Flatten -->
+<!-- ============================================ -->
+<div class="stage">
+  <h2>📏 第5步：Flatten() — 拉平</h2>
+  <p>把 3D 特征图 <strong>排成一排</strong>，丢掉空间结构，准备喂给全连接层。</p>
+  <canvas id="flattenCanvas" width="500" height="100" style="display:block; margin: 15px auto;"></canvas>
+  <span class="tensor">形状</span>: <span class="shape">[64,32,8,8]</span> → <span class="shape">[64, 2048]</span> （32×8×8 = 2048）
+</div>
+
+<div class="arrow">⬇</div>
+
+<!-- ============================================ -->
+<!-- 阶段 5：全连接分类 -->
+<!-- ============================================ -->
+<div class="stage">
+  <h2>🎯 第6步：两个 Linear 层 — 决策</h2>
+
+  <h3>Linear(2048 → 128)：压缩信息</h3>
+  <div class="formula">Y₁ = X · W₁ + b₁</div>
+  <p style="margin:5px 0;">[64,2048] × [2048,128] + [128] = <span class="shape">[64,128]</span></p>
+  <p>2048 个特征值通过矩阵乘法"融合"成 128 个高层语义概念。再 ReLU 激活。</p>
+
+  <h3>Linear(128 → 10)：输出分数</h3>
+  <div class="formula">Y₂ = Y₁ · W₂ + b₂</div>
+  <p style="margin:5px 0;">[64,128] × [128,10] + [10] = <span class="shape">[64,10]</span></p>
+  <p>每张图得到 <strong>10 个分数</strong>——分数最高的那个就是模型的最终预测。</p>
+
+  <div class="calc-step">
+    第1张图输出：[<span style="color:#00d4ff;">8.1</span>, 1.2, -0.5, 3.1, 0.2, -1.0, 0.8, -0.3, 2.1, 4.0]<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;↑ 最高 → 预测为 <strong>类别 0 = 猫</strong>
+  </div>
+</div>
+
+<div class="arrow">⬇</div>
+
+<!-- ============================================ -->
+<!-- 完整形状总结 -->
+<!-- ============================================ -->
+<div class="stage">
+  <h2>📊 完整形状流水线一览</h2>
+  <table>
+    <tr><th>层</th><th>操作</th><th>输入形状</th><th>输出形状</th><th>参数量</th></tr>
+    <tr><td>输入</td><td>—</td><td>—</td><td style="color:#e94560;">[64, 3, 32, 32]</td><td>0</td></tr>
+    <tr><td>Conv1</td><td>16个3×3×3核滑遍全图</td><td>[64,3,32,32]</td><td>[64,16,32,32]</td><td>3×3×3×16+16 = 448</td></tr>
+    <tr><td>ReLU</td><td>max(0,z) 逐元素</td><td>[64,16,32,32]</td><td>[64,16,32,32]</td><td>0</td></tr>
+    <tr><td>Pool1</td><td>2×2取最大, stride=2</td><td>[64,16,32,32]</td><td>[64,16,16,16]</td><td>0</td></tr>
+    <tr><td>Conv2</td><td>32个3×3×16核滑遍全图</td><td>[64,16,16,16]</td><td>[64,32,16,16]</td><td>3×3×16×32+32=4640</td></tr>
+    <tr><td>ReLU</td><td>max(0,z) 逐元素</td><td>[64,32,16,16]</td><td>[64,32,16,16]</td><td>0</td></tr>
+    <tr><td>Pool2</td><td>2×2取最大, stride=2</td><td>[64,32,16,16]</td><td>[64,32,8,8]</td><td>0</td></tr>
+    <tr><td>Flatten</td><td>拉平</td><td>[64,32,8,8]</td><td>[64,2048]</td><td>0</td></tr>
+    <tr><td>FC1</td><td>矩阵乘 Y=X·W+b</td><td>[64,2048]</td><td>[64,128]</td><td>2048×128+128=262,272</td></tr>
+    <tr><td>ReLU</td><td>max(0,z)</td><td>[64,128]</td><td>[64,128]</td><td>0</td></tr>
+    <tr><td>FC2</td><td>矩阵乘, 输出10类分数</td><td>[64,128]</td><td style="color:#00d4ff;">[64,10]</td><td>128×10+10=1,290</td></tr>
+  </table>
+  <p style="text-align:center; margin-top:15px;">总参数 ≈ <strong>268,650</strong> 个，全部由训练自动学习</p>
+</div>
+
+<!-- ============================================ -->
+<!-- 优化器详解 -->
+<!-- ============================================ -->
+<div class="stage" style="border-left-color: #fdcb6e;">
+  <h2 style="color:#fdcb6e;">⚙️ Adam vs SGD 优化器参数详解</h2>
+
+  <p>这两个优化器做同一件事：<strong>根据梯度更新模型参数</strong>。区别在于<strong>怎么更新</strong>。</p>
+
+  <h3>共同公式（每次更新参数）：</h3>
+  <div class="formula" style="font-size:1.1em;">θ_new = θ_old — 学习率 × 更新方向</div>
+  <p>关键在于 <strong>"更新方向"怎么算</strong>——SGD 和 Adam 的算法完全不一样。</p>
+
+  <h3 style="color:#00d4ff;">SGD (带动量)</h3>
+  <div class="formula">v = momentum × v + gradient</div><br>
+  <div class="formula">θ = θ — lr × v</div>
+
+  <p><strong>理解：</strong>像骑自行车。当前梯度是"踩一脚"，但之前的速度（v）还在，继续往前滑。方向一致时越走越快，方向震荡时历史速度帮你平滑。</p>
+
+  <table class="vs-table">
+    <tr><th colspan="2">SGD 参数</th></tr>
+    <tr><td><span class="formula">lr</span></td><td><strong>学习率。</strong>SGD 对这个参数<strong>极其敏感</strong>。设太小（0.0001）→ 走不动。设太大（0.1）→ 震荡发散。典型值：<strong>0.01</strong>（比 Adam 大 10 倍）。因为 SGD 的梯度是"原始尺度"，没有自适应缩放。</td></tr>
+    <tr><td><span class="formula">momentum</span></td><td><strong>动量系数，几乎总是 0.9。</strong>0 = 纯 SGD（每步只根据当前梯度，走得很慢）。0.9 = 保留 90% 的历史速度。0.99 = 惯性太大，拐不了弯。经典值是 <strong>0.9</strong>，几十年没变过。</td></tr>
+    <tr><td><span class="formula">weight_decay</span></td><td>每次更新把 weight 往 0 拉一点，防过拟合。典型值 1e-4~5e-4。</td></tr>
+  </table>
+
+  <div class="note">
+    <strong>SGD 总结：</strong>简单、经典。但 lr 设错就崩。适合熟练工 + 大模型训练（很多 YOLO 的 paper 用 SGD 训的）。
+    你实验 3 用 SGD lr=0.001 → 54.3%，换成 lr=0.01+ momentum=0.9 才能发挥出来。
+  </div>
+
+  <h3 style="color:#e94560;">Adam (Adaptive Moment Estimation)</h3>
+  <div class="formula">m = β₁ × m + (1-β₁) × gradient</div> ← 一阶动量（梯度均值）<br>
+  <div class="formula">v = β₂ × v + (1-β₂) × gradient²</div> ← 二阶动量（梯度方差）<br>
+  <div class="formula">θ = θ — lr × m / (√v + ε)</div> ← 自适应学习率
+
+  <p><strong>理解：</strong>Adam 对<strong>每个参数</strong>都跟踪两个值——m（这个参数最近在往哪走）、v（走多快）。然后自动算出每个参数自己的"专属步长"。</p>
+  <p>梯度一直大的参数 → √v 大 → 步长自动缩小（别走过头）</p>
+  <p>梯度一直小的参数 → √v 小 → 步长自动放大（推一把）</p>
+
+  <table class="vs-table">
+    <tr><th colspan="2">Adam 参数</th></tr>
+    <tr><td><span class="formula">lr</span></td><td><strong>学习率。</strong>Adam 对这个参数<strong>不敏感</strong>。默认 0.001 在绝大多数场景都能跑。因为每个参数的步长被 √v 自动调整了，lr 本身更像一个"全局缩放系数"。</td></tr>
+    <tr><td><span class="formula">betas=(0.9, 0.999)</span></td><td>(β₁, β₂)。β₁=0.9 控制"短期记忆"（类似 momentum），β₂=0.999 控制"长期速度统计"。几乎<strong>不用改</strong>，论文作者和全社区都用这个默认值。</td></tr>
+    <tr><td><span class="formula">eps=1e-8</span></td><td>防除零的小常数，永远不改。</td></tr>
+    <tr><td><span class="formula">weight_decay</span></td><td>和 SGD 一样。注意：Adam 建议用 <strong>AdamW</strong> 变体，它把 weight_decay 和自适应学习率解耦，效果更好。</td></tr>
+  </table>
+
+  <div class="note">
+    <strong>Adam 总结：</strong>自适应、不挑 lr、开箱即用。入门首选。缺点：有时泛化不如精心调参的 SGD。
+    你实验 3 用 Adam lr=0.001 → 69.3%，对比 SGD lr=0.001 → 54.3%，差距就在 Adam 自动调整了步长。
+  </div>
+
+  <h3>一张表对比</h3>
+  <table>
+    <tr><th></th><th>SGD</th><th>Adam</th></tr>
+    <tr><td>核心思路</td><td>全局统一学习率，靠动量平滑</td><td>每个参数有自己的学习率</td></tr>
+    <tr><td>lr 敏感度</td><td>极高，设错就崩</td><td>低，0.001 默认基本都能跑</td></tr>
+    <tr><td>核心参数</td><td>lr + momentum</td><td>lr（betas 不用改）</td></tr>
+    <tr><td>典型 lr</td><td>0.01 ~ 0.1</td><td>0.0001 ~ 0.001</td></tr>
+    <tr><td>收敛速度</td><td>慢（需要手动调 lr schedule）</td><td>快</td></tr>
+    <tr><td>泛化能力</td><td>有时更好（大模型场景）</td><td>大多数时候够用</td></tr>
+    <tr><td>适合谁</td><td>熟练工 + 追求极致精度</td><td><strong>入门/快速实验</strong></td></tr>
+  </table>
+
+  <div class="note">
+    <strong>你现在这个阶段怎么选：</strong>默认用 Adam/AdamW（lr=0.001）。如果效果可以就不折腾。
+    如果想复现某个经典 YOLO 配置 → 换成 SGD（lr=0.01, momentum=0.9, weight_decay=5e-4）。
+    <br><br>
+    <strong>核心心法：</strong>SGD 像是"所有人都走一样的步长，靠动量方向稳定"。
+    Adam 像是"每个参数有人扶着走，步子大小自动调"。
+    所以 Adam 对 lr 不敏感——你把 lr 写错了它也能自己修正；SGD 你写错 lr 直接训不动。
+  </div>
+</div>
+
+<script>
+// ============================================================
+// Canvas 1: 输入图像模拟 — 3 通道显示
+// ============================================================
+(function() {
+  const c = document.getElementById('inputCanvas');
+  const ctx = c.getContext('2d');
+  const size = 32, cell = 5, gap = 6;
+
+  // 模拟 3 个通道的小图像
+  for (let ch = 0; ch < 3; ch++) {
+    const y0 = 10 + ch * (size * cell + 25);
+    ctx.fillStyle = '#888';
+    ctx.font = '11px sans-serif';
+    ctx.fillText(['R 通道 (红)', 'G 通道 (绿)', 'B 通道 (蓝)'][ch], 10, y0 - 4);
+
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const v = Math.random() * 0.6 + 0.2;
+        let r, g, b;
+        if (ch === 0) { r = Math.floor(v * 255); g = Math.floor(v * 80); b = Math.floor(v * 80); }
+        else if (ch === 1) { r = Math.floor(v * 80); g = Math.floor(v * 255); b = Math.floor(v * 80); }
+        else { r = Math.floor(v * 80); g = Math.floor(v * 80); b = Math.floor(v * 255); }
+        ctx.fillStyle = `rgb(${r},${g},${b})`;
+        ctx.fillRect(130 + x * cell, y0 + y * cell, cell, cell);
+      }
+    }
+  }
+  ctx.fillStyle = '#00d4ff';
+  ctx.font = 'bold 12px sans-serif';
+  ctx.fillText('3 通道 × 32×32 = 3072 个像素值', 20, 185);
+})();
+
+// ============================================================
+// Canvas 2: 滑动示意 — 卷积核扫过图像
+// ============================================================
+(function() {
+  const c = document.getElementById('slideCanvas');
+  const ctx = c.getContext('2d');
+
+  // 画一个大图（模拟）
+  const grid = 6, cell = 12;
+  for (let y = 0; y < grid; y++) {
+    for (let x = 0; x < grid; x++) {
+      ctx.fillStyle = `rgb(${40+Math.random()*40},${40+Math.random()*40},${80+Math.random()*80})`;
+      ctx.fillRect(20 + x * cell, 20 + y * cell, cell, cell);
+    }
+  }
+  ctx.strokeStyle = '#888';
+  ctx.strokeRect(20, 20, grid * cell, grid * cell);
+  ctx.fillStyle = '#888';
+  ctx.font = '10px sans-serif';
+  ctx.fillText('输入图 32×32', 20, 105);
+
+  // 卷积核框
+  const positions = [
+    {x: 0, y: 0, label: '位置1: 核在左上角', out: '-6'},
+    {x: 3, y: 0, label: '位置2: 核右移3格', out: '-9'},
+    {x: 0, y: 3, label: '位置3: 核下移3格', out: '+4'},
+    {x: 3, y: 3, label: '位置4: 核在右下区域', out: '+1'},
+  ];
+
+  positions.forEach((p, i) => {
+    const kx = 20 + p.x * cell, ky = 20 + p.y * cell, ks = 3 * cell;
+    ctx.strokeStyle = ['#e94560','#fdcb6e','#00d4ff','#00b894'][i];
+    ctx.lineWidth = 2;
+    ctx.strokeRect(kx, ky, ks, ks);
+
+    // 输出值
+    const ox = 160 + i * 85, oy = 20;
+    ctx.fillStyle = '#0f3460';
+    ctx.fillRect(ox, oy, 70, 70);
+    ctx.fillStyle = '#fff';
+    ctx.font = '9px sans-serif';
+    ctx.fillText(p.label, ox + 3, oy + 18);
+    ctx.fillStyle = ['#e94560','#fdcb6e','#00d4ff','#00b894'][i];
+    ctx.font = 'bold 16px monospace';
+    ctx.fillText(p.out, ox + 20, oy + 48);
+    ctx.fillText('→ 特征图', ox + 10, oy + 65);
+  });
+
+  // 箭头
+  ctx.fillStyle = '#e94560';
+  ctx.font = '12px sans-serif';
+  ctx.fillText('核在 32×32 个位置上各算一次 → 输出一张 32×32 的特征图', 130, 165);
+})();
+
+// ============================================================
+// Canvas: 16 个特征图模拟
+// ============================================================
+(function() {
+  const container = document.getElementById('featureMaps');
+  for (let i = 0; i < 16; i++) {
+    const c = document.createElement('canvas');
+    c.width = 55; c.height = 55;
+    const ctx = c.getContext('2d');
+    const sz = 8, cl = 5;
+    for (let y = 0; y < sz; y++) {
+      for (let x = 0; x < sz; x++) {
+        const v = Math.random() * 200;
+        ctx.fillStyle = `rgb(${Math.floor(v)},${Math.floor(v*0.3)},${Math.floor(v*0.3)})`;
+        ctx.fillRect(x * cl + 5, y * cl + 5, cl, cl);
+      }
+    }
+    const div = document.createElement('div');
+    div.className = 'grid-item';
+    div.appendChild(c);
+    const label = document.createElement('div');
+    label.style.cssText = 'font-size:10px;color:#888;';
+    label.textContent = `核${i+1}`;
+    div.appendChild(label);
+    container.appendChild(div);
+  }
+  const note = document.createElement('p');
+  note.style.cssText = 'text-align:center;color:#fdcb6e;font-size:12px;width:100%;';
+  note.textContent = '每张特征图突出一种模式——有的亮在边缘位置，有的亮在纹理区域...';
+  container.appendChild(note);
+})();
+
+// ============================================================
+// Canvas: MaxPool 示意
+// ============================================================
+(function() {
+  const c = document.getElementById('poolCanvas');
+  const ctx = c.getContext('2d');
+  const data = [3,7,2,1, 5,1,9,3, 2,8,4,6, 0,3,5,2];
+  const cell = 40;
+
+  // 左：输入 4×4
+  ctx.fillStyle = '#888'; ctx.font = '11px sans-serif';
+  ctx.fillText('输入 4×4', 15, 15);
+  for (let i = 0; i < 16; i++) {
+    const x = 20 + (i % 4) * cell, y = 25 + Math.floor(i / 4) * cell;
+    ctx.fillStyle = '#1a3a5c';
+    ctx.fillRect(x, y, cell-2, cell-2);
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 14px monospace';
+    ctx.fillText(data[i], x + 12, y + 28);
+  }
+
+  // 箭头
+  ctx.fillStyle = '#e94560'; ctx.font = 'bold 18px sans-serif';
+  ctx.fillText('→', 195, 105);
+
+  // 右：输出 2×2
+  ctx.fillStyle = '#888'; ctx.font = '11px sans-serif';
+  ctx.fillText('输出 2×2', 235, 15);
+  const pooled = [
+    Math.max(3,7,5,1), Math.max(2,1,9,3),
+    Math.max(2,8,0,3), Math.max(4,6,5,2)
+  ];
+  for (let i = 0; i < 4; i++) {
+    const x = 240 + (i % 2) * cell * 2, y = 25 + Math.floor(i / 2) * cell * 2;
+    ctx.fillStyle = '#e94560';
+    ctx.fillRect(x, y, cell*2-3, cell*2-3);
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 16px monospace';
+    ctx.fillText(pooled[i], x + 32, y + 44);
+  }
+  ctx.fillStyle = '#fdcb6e';
+  ctx.font = '11px sans-serif';
+  ctx.fillText('每 2×2 区域取最大值 → 尺寸减半, 核心特征保留', 245, 140);
+})();
+
+// ============================================================
+// Canvas: Flatten 示意
+// ============================================================
+(function() {
+  const c = document.getElementById('flattenCanvas');
+  const ctx = c.getContext('2d');
+
+  // 3D cube representation
+  ctx.fillStyle = '#888'; ctx.font = '11px sans-serif';
+  ctx.fillText('32 通道 × 8×8', 10, 15);
+
+  // Small grids
+  for (let ch = 0; ch < 3; ch++) {
+    for (let y = 0; y < 4; y++) {
+      for (let x = 0; x < 4; x++) {
+        ctx.fillStyle = `rgb(${40+ch*60},${40+ch*40},${100+ch*40})`;
+        ctx.fillRect(10 + ch * 50 + x * 6, 25 + y * 6, 5, 5);
+      }
+    }
+  }
+  ctx.fillText('...', 160, 45);
+
+  // Arrow
+  ctx.fillStyle = '#e94560'; ctx.font = 'bold 16px sans-serif';
+  ctx.fillText('→', 190, 50);
+
+  // Flatten output
+  ctx.fillStyle = '#888'; ctx.font = '11px sans-serif';
+  ctx.fillText('一维向量 [2048]', 220, 15);
+  for (let i = 0; i < 40; i++) {
+    const v = Math.random();
+    ctx.fillStyle = `rgb(${Math.floor(v*200)},${Math.floor(v*100)},${Math.floor(v*150)})`;
+    ctx.fillRect(220 + i * 6, 25, 5, 30);
+  }
+  ctx.fillText('...', 465, 50);
+
+  ctx.fillStyle = '#fdcb6e'; ctx.font = '12px sans-serif';
+  ctx.fillText('空间结构被丢弃，变成一串"特征数"', 220, 85);
+})();
+</script>
+
+</body>
+</html>

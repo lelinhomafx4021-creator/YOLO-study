@@ -1,0 +1,15 @@
+# custom_data.yaml
+# 工地安全帽检测项目数据集地图配置文件
+
+# 1. 数据集的绝对根目录路径
+path: d:/vision_algo_workspace/vision-bootcamp/datasets/safety_helmet
+
+# 2. 训练集与验证集的图片子目录路径 (相对于上面的 path 物理目录)
+train: images/train
+val: images/val
+
+# 3. 类别字典 (必须与 Roboflow 标注的 Class ID 保持 100% 绝对一致，否则会指鹿为马！)
+names:
+  0: helmet        # 安全帽
+  1: no-helmet     # 未戴安全帽的头 (人脸)
+  2: safety-vest   # 反光背心
