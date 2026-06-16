@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>自注意力机制可视化 — Q·K → 权重 → 加权V</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: "Microsoft YaHei", sans-serif; background: #0a0a1a; color: #e0e0e0; padding: 20px; }
+  h1 { text-align: center; color: #00d4ff; font-size: 28px; margin-bottom: 10px; }
+  .subtitle { text-align: center; color: #888; margin-bottom: 30px; font-size: 14px; }
+  .section { max-width: 900px; margin: 0 auto 30px; }
+  .section h2 { color: #ffcc00; font-size: 20px; margin-bottom: 15px; border-left: 4px solid #ffcc00; padding-left: 12px; }
+  .step-box { background: #1a1a2e; border-radius: 12px; padding: 20px; margin-bottom: 15px; border: 1px solid #333; }
+  .step-label { display: inline-block; background: #ff6b35; color: #fff; padding: 2px 10px; border-radius: 4px; font-size: 13px; font-weight: bold; margin-bottom: 10px; }
+  .word { display: inline-block; background: #2a2a4a; border: 2px solid #555; border-radius: 8px; padding: 8px 14px; margin: 4px; font-size: 15px; cursor: pointer; transition: all 0.3s; }
+  .word:hover { border-color: #00d4ff; transform: scale(1.05); }
+  .word.active { border-color: #ffcc00; background: #3a3a5a; }
+  .word.highlight { border-color: #ff6b35; background: #3a2a1a; }
+  .arrow { text-align: center; color: #666; font-size: 24px; margin: 8px 0; }
+  .matrix-container { overflow-x: auto; margin: 15px 0; }
+  table { border-collapse: collapse; margin: 0 auto; }
+  th, td { border: 1px solid #444; padding: 8px 12px; text-align: center; font-size: 13px; }
+  th { background: #2a2a4a; color: #ffcc00; }
+  td { background: #1a1a2e; }
+  td.score { cursor: pointer; transition: all 0.3s; }
+  td.score:hover { background: #3a3a5a; }
+  td.high { background: #2a4a2a; color: #00ff88; font-weight: bold; }
+  td.mid { background: #4a4a2a; color: #ffcc00; }
+  td.low { background: #4a2a2a; color: #ff6666; }
+  .softmax-bar { display: flex; align-items: center; margin: 5px 0; }
+  .softmax-label { width: 50px; font-size: 13px; color: #aaa; }
+  .softmax-fill { height: 20px; border-radius: 4px; transition: width 0.5s; }
+  .softmax-value { width: 60px; font-size: 13px; color: #ccc; text-align: right; margin-left: 8px; }
+  .result-vec { display: inline-flex; flex-direction: column; background: #1a2a1a; border: 2px solid #00ff88; border-radius: 8px; padding: 10px; margin: 10px 5px; }
+  .result-vec .label { color: #00ff88; font-size: 12px; margin-bottom: 5px; }
+  .result-vec .values { color: #e0e0e0; font-size: 13px; }
+  .controls { text-align: center; margin: 20px 0; }
+  .btn { background: #2a2a4a; border: 2px solid #00d4ff; color: #00d4ff; padding: 10px 24px; border-radius: 8px; font-size: 15px; cursor: pointer; margin: 0 8px; transition: all 0.3s; }
+  .btn:hover { background: #00d4ff; color: #0a0a1a; }
+  .btn.active { background: #00d4ff; color: #0a0a1a; }
+  .legend { display: flex; justify-content: center; gap: 20px; margin: 15px 0; font-size: 13px; }
+  .legend span { display: flex; align-items: center; gap: 6px; }
+  .legend .dot { width: 12px; height: 12px; border-radius: 3px; }
+  .formula { text-align: center; background: #1a1a2e; padding: 15px; border-radius: 8px; margin: 15px 0; font-size: 18px; color: #ffcc00; border: 1px solid #444; }
+  .formula .dim { color: #888; font-size: 13px; }
+  .explain { color: #aaa; font-size: 14px; line-height: 1.8; margin: 10px 0; }
+  .explain strong { color: #ffcc00; }
+  .explain em { color: #00d4ff; font-style: normal; }
+  #step-display { font-size: 14px; color: #aaa; margin: 10px 0; }
+</style>
+</head>
+<body>
+
+<h1>自注意力机制可视化</h1>
+<p class="subtitle">一步一步看：Q·K 算分数 → Softmax 归一化 → 加权求和 V → 输出</p>
+
+<div class="section">
+  <h2>输入：四个词</h2>
+  <div class="step-box">
+    <p class="explain">我们用一个简单例子：<strong>"我 今天 去 北京"</strong> 四个词。<br>每个词用一个 <strong>4 维向量</strong> 表示（实际中是 512 或 768 维，这里简化）。</p>
+    <div id="input-words" style="text-align:center; margin: 15px 0;"></div>
+    <p class="explain">每个词向量会生成三个向量：<em>Q（Query）</em>、<em>K（Key）</em>、<em>V（Value）</em>。</p>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Step 1: 生成 Q、K、V</h2>
+  <div class="step-box">
+    <span class="step-label">线性变换</span>
+    <p class="explain">每个词的向量 × 三个不同的权重矩阵 → 得到 Q、K、V。<br>
+    <strong>Q = 我在找什么（Query）</strong><br>
+    <strong>K = 我能提供什么（Key）</strong><br>
+    <strong>V = 我的实际内容（Value）</strong></p>
+    <div class="formula">
+      Q = X · W<sub>Q</sub> &nbsp;&nbsp; K = X · W<sub>K</sub> &nbsp;&nbsp; V = X · W<sub>V</sub>
+      <br><span class="dim">X: [4×4] &nbsp; W: [4×4] &nbsp; → Q,K,V: [4×4]</span>
+    </div>
+    <div id="qkv-display" style="text-align:center; margin: 15px 0;"></div>
+    <div class="controls">
+      <button class="btn" onclick="showQKV('Q')">看 Q</button>
+      <button class="btn" onclick="showQKV('K')">看 K</button>
+      <button class="btn" onclick="showQKV('V')">看 V</button>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Step 2: Q · K<sup>T</sup> 算注意力分数</h2>
+  <div class="step-box">
+    <span class="step-label">点积</span>
+    <p class="explain">每个词的 Q 和所有词的 K 做点积 → 得到一个 <strong>4×4 的分数矩阵</strong>。<br>
+    <strong>分数高 = 两个词关系强</strong>，分数低 = 关系弱。</p>
+    <div class="formula">
+      Scores = Q · K<sup>T</sup> / √d<sub>k</sub>
+      <br><span class="dim">除以 √d_k 防止分数太大（d_k=4, √4=2）</span>
+    </div>
+    <p class="explain">点击下面矩阵里的数字，看它是怎么算出来的：</p>
+    <div class="matrix-container">
+      <table id="score-matrix"></table>
+    </div>
+    <p id="score-explain" style="color:#aaa; font-size:13px; min-height:40px; margin-top:10px;"></p>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Step 3: Softmax 归一化</h2>
+  <div class="step-box">
+    <span class="step-label">概率化</span>
+    <p class="explain">把每行的分数变成概率（加起来 = 1）。<br>
+    <strong>Softmax 让大的更大、小的更小</strong>——高分词的权重被放大，低分词被压到接近 0。</p>
+    <div id="softmax-display"></div>
+    <p class="explain">选择要查看的行（代表哪个词的注意力分布）：</p>
+    <div class="controls">
+      <button class="btn" onclick="showSoftmax(0)">我</button>
+      <button class="btn" onclick="showSoftmax(1)">今天</button>
+      <button class="btn" onclick="showSoftmax(2)">去</button>
+      <button class="btn" onclick="showSoftmax(3)">北京</button>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Step 4: 加权求和 V</h2>
+  <div class="step-box">
+    <span class="step-label">输出</span>
+    <p class="explain">用 Softmax 的权重对 V 做加权求和 → 得到每个词的新表示。<br>
+    <strong>新表示 = "我看过的所有词，按重要性混合"</strong>。</p>
+    <div id="output-display" style="text-align:center; margin: 15px 0;"></div>
+    <div class="controls">
+      <button class="btn" onclick="showOutput(0)">算"我"的输出</button>
+      <button class="btn" onclick="showOutput(1)">算"今天"的输出</button>
+      <button class="btn" onclick="showOutput(2)">算"去"的输出</button>
+      <button class="btn" onclick="showOutput(3)">算"北京"的输出</button>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h2>完整流程</h2>
+  <div class="step-box" style="text-align:center;">
+    <p class="formula" style="font-size:16px;">
+      输入 X → ×W<sub>Q</sub> → Q &nbsp;&nbsp; ×W<sub>K</sub> → K &nbsp;&nbsp; ×W<sub>V</sub> → V<br><br>
+      Scores = Q·K<sup>T</sup> / √d<sub>k</sub> → Softmax → 权重<br><br>
+      输出 = 权重 · V
+    </p>
+    <p class="explain" style="margin-top:15px;">
+      <strong>一句话：每个词用自己的 Q 去"问"所有词的 K，得到关注度，然后按关注度取所有词的 V 混合。</strong>
+    </p>
+  </div>
+</div>
+
+<div class="legend">
+  <span><div class="dot" style="background:#00d4ff;"></div> Q (Query)</span>
+  <span><div class="dot" style="background:#ffcc00;"></div> K (Key)</span>
+  <span><div class="dot" style="background:#00ff88;"></div> V (Value)</span>
+  <span><div class="dot" style="background:#ff6b35;"></div> 高注意力</span>
+</div>
+
+<script>
+// 词向量 (简化为4维)
+const words = ["我", "今天", "去", "北京"];
+const X = [
+  [1.0, 0.5, 0.2, 0.8],   // 我
+  [0.3, 1.0, 0.6, 0.1],   // 今天
+  [0.7, 0.4, 1.0, 0.3],   // 去
+  [0.9, 0.2, 0.5, 1.0]    // 北京
+];
+
+// 权重矩阵 (简化)
+const Wq = [[1,0,0,1],[0,1,1,0],[1,0,1,0],[0,1,0,1]];
+const Wk = [[0,1,1,0],[1,0,0,1],[0,1,0,1],[1,0,1,0]];
+const Wv = [[1,1,0,0],[0,0,1,1],[1,0,1,0],[0,1,0,1]];
+
+// 矩阵乘法
+function matMul(A, B) {
+  const m = A.length, n = B[0].length, p = B.length;
+  const C = Array.from({length:m}, () => new Array(n).fill(0));
+  for (let i = 0; i < m; i++)
+    for (let j = 0; j < n; j++)
+      for (let k = 0; k < p; k++)
+        C[i][j] += A[i][k] * B[k][j];
+  return C;
+}
+
+function transpose(A) {
+  return A[0].map((_, j) => A.map(row => row[j]));
+}
+
+function dot(a, b) { return a.reduce((s, v, i) => s + v * b[i], 0); }
+
+function softmax(arr) {
+  const max = Math.max(...arr);
+  const exps = arr.map(v => Math.exp(v - max));
+  const sum = exps.reduce((s, v) => s + v, 0);
+  return exps.map(v => v / sum);
+}
+
+const Q = matMul(X, Wq);
+const K = matMul(X, Wk);
+const V = matMul(X, Wv);
+const Kt = transpose(K);
+const dk = 4;
+
+// 算分数
+const scores = Q.map(q => Kt.map(k => dot(q, k) / Math.sqrt(dk)));
+const attnWeights = scores.map(row => softmax(row));
+
+// 渲染输入词
+function renderInputWords() {
+  const el = document.getElementById("input-words");
+  el.innerHTML = words.map((w, i) =>
+    `<div class="word" id="word-${i}">${w}<br><span style="font-size:11px;color:#888">[${X[i].map(v=>v.toFixed(1)).join(", ")}]</span></div>`
+  ).join("");
+}
+
+// 渲染 Q/K/V
+function showQKV(type) {
+  const el = document.getElementById("qkv-display");
+  const data = type === "Q" ? Q : type === "K" ? K : V;
+  const color = type === "Q" ? "#00d4ff" : type === "K" ? "#ffcc00" : "#00ff88";
+  el.innerHTML = `<table style="margin:0 auto">
+    <tr><th style="color:${color}">${type}</th>${words.map(w=>`<th>${w}</th>`).join("")}</tr>
+    ${data.map((row,i) => `<tr><th>${words[i]}</th>${row.map(v=>`<td>${v.toFixed(2)}</td>`).join("")}</tr>`).join("")}
+  </table>`;
+}
+
+// 渲染分数矩阵
+function renderScoreMatrix() {
+  const table = document.getElementById("score-matrix");
+  let html = `<tr><th>Q \\ K</th>${words.map(w=>`<th>${w}</th>`).join("")}</tr>`;
+  for (let i = 0; i < 4; i++) {
+    html += `<tr><th>${words[i]}</th>`;
+    for (let j = 0; j < 4; j++) {
+      const s = scores[i][j];
+      const cls = s > 1 ? "high" : s > 0 ? "mid" : "low";
+      html += `<td class="score ${cls}" onclick="explainScore(${i},${j})">${s.toFixed(2)}</td>`;
+    }
+    html += "</tr>";
+  }
+  table.innerHTML = html;
+}
+
+function explainScore(i, j) {
+  const el = document.getElementById("score-explain");
+  const q = Q[i], k = Kt[j];
+  const parts = q.map((v, idx) => `${v.toFixed(1)}×${k[idx].toFixed(1)}`).join(" + ");
+  const raw = dot(q, k);
+  const scaled = raw / Math.sqrt(dk);
+  el.innerHTML = `<strong>"${words[i]}"</strong> 的 Q 和 <strong>"${words[j]}"</strong> 的 K 做点积：<br>
+    ${parts} = ${raw.toFixed(2)} → 除以 √4 = ${scaled.toFixed(2)}`;
+}
+
+// Softmax 展示
+function showSoftmax(rowIdx) {
+  const el = document.getElementById("softmax-display");
+  const row = scores[rowIdx];
+  const weights = attnWeights[rowIdx];
+  const colors = ["#00d4ff", "#ffcc00", "#00ff88", "#ff6b35"];
+  el.innerHTML = `<p style="color:#ffcc00; margin-bottom:10px;">"${words[rowIdx]}" 对每个词的注意力权重：</p>` +
+    words.map((w, j) => {
+      const pct = (weights[j] * 100).toFixed(1);
+      return `<div class="softmax-bar">
+        <div class="softmax-label">${w}</div>
+        <div style="flex:1; background:#2a2a4a; border-radius:4px; overflow:hidden;">
+          <div class="softmax-fill" style="width:${pct}%; background:${colors[j]};"></div>
+        </div>
+        <div class="softmax-value">${pct}%</div>
+      </div>`;
+    }).join("");
+}
+
+// 输出展示
+function showOutput(rowIdx) {
+  const el = document.getElementById("output-display");
+  const weights = attnWeights[rowIdx];
+  const out = [0, 0, 0, 0];
+  for (let j = 0; j < 4; j++)
+    for (let k = 0; k < 4; k++)
+      out[k] += weights[j] * V[j][k];
+
+  el.innerHTML = `
+    <div style="margin-bottom:15px;">
+      <p style="color:#ffcc00; font-size:15px; margin-bottom:10px;">"${words[rowIdx]}" 的输出 = 加权混合所有词的 V：</p>
+      ${words.map((w, j) =>
+        `<span style="color:#888">${w}×${(weights[j]*100).toFixed(0)}%</span>${j<3?" + ":""}`
+      ).join(" &nbsp; ")
+      }
+    </div>
+    <div class="result-vec">
+      <div class="label">输出 "${words[rowIdx]}"</div>
+      <div class="values">[${out.map(v=>v.toFixed(2)).join(", ")}]</div>
+    </div>
+    <div style="margin-top:10px;">
+      ${words.map((w, j) =>
+        `<div class="result-vec" style="opacity:${weights[j]>0.1?1:0.3}; border-color:${weights[j]>0.1?'#ff6b35':'#333'};">
+          <div class="label">${w} (${(weights[j]*100).toFixed(0)}%)</div>
+          <div class="values">[${V[j].map(v=>v.toFixed(1)).join(", ")}]</div>
+        </div>`
+      ).join("")}
+    </div>
+    <p class="explain" style="margin-top:10px;">权重越大的词，它的 V 对输出的影响越大。<br>
+    "${words[rowIdx]}" 的新表示 = <strong>它关注最多的词的内容的混合</strong>。</p>
+  `;
+}
+
+// 初始化
+renderInputWords();
+renderScoreMatrix();
+showQKV("Q");
+showSoftmax(0);
+</script>
+
+</body>
+</html>

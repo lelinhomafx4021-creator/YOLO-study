@@ -1,0 +1,6 @@
+# x1 y1 x2 y2 class conf
+337 6 405 96  no-helmet  0.803
+259 107 302 160  no-helmet  0.708
+102 57 160 135  no-helmet  0.693
+203 129 244 178  no-helmet  0.639
+101 25 159 136  no-helmet  0.535

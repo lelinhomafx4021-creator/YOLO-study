@@ -7,6 +7,13 @@ import time, os, cv2, numpy as np, onnxruntime as ort
 from pathlib import Path
 from ultralytics import YOLO
 
+# 把 CUDA 12 的 DLL 路径加进去，让 ONNX Runtime 能找到
+_ort_dir = Path(__file__).resolve().parent.parent / ".venv" / "Lib" / "site-packages" / "onnxruntime" / "capi"
+if _ort_dir.exists():
+    for _f in os.listdir(str(_ort_dir)):
+        if _f.endswith(".dll"):
+            os.add_dll_directory(str(_ort_dir))
+
 def main():
     # ═══ 1. 导出 ONNX ═══
     pt_path = Path(r"d:\vision_algo_workspace\vision-bootcamp\runs\safety_helmet\yolo11n_baseline_v1\weights\best.pt")
@@ -19,24 +26,29 @@ def main():
     if img is None:
         img = np.random.randint(0, 255, (640, 640, 3), dtype=np.uint8)
 
-    # ═══ 3. 多次推理取平均 ═══
+    # ═══ 3. 预热 + 多次推理取平均 ═══
     n_runs = 20
+
+    # 预热一次（排除 CUDA 编译、缓存初始化等开销）
+    print("预热中...")
+    _ = model.predict(img, conf=0.25, verbose=False, workers=0, device=0)
+    model_onnx = YOLO(str(onnx_path))
+    _ = model_onnx.predict(img, conf=0.25, verbose=False, workers=0, device=0)
 
     # --- .pt ---
     times_pt = []
     for _ in range(n_runs):
         t0 = time.time()
-        r_pt = model.predict(img, conf=0.25, verbose=False, workers=0)
+        r_pt = model.predict(img, conf=0.25, verbose=False, workers=0, device=0)
         times_pt.append((time.time()-t0)*1000)
     t_pt_mean = np.mean(times_pt)
     t_pt_std  = np.std(times_pt)
 
-    # --- .onnx ---
-    model_onnx = YOLO(str(onnx_path))
+    # --- .onnx (warmup 时已加载) ---
     times_onnx = []
     for _ in range(n_runs):
         t0 = time.time()
-        r_onnx = model_onnx.predict(img, conf=0.25, verbose=False, workers=0)
+        r_onnx = model_onnx.predict(img, conf=0.25, verbose=False, workers=0, device=0)
         times_onnx.append((time.time()-t0)*1000)
     t_onnx_mean = np.mean(times_onnx)
     t_onnx_std  = np.std(times_onnx)
@@ -73,7 +85,7 @@ def main():
     # ═══ 6. 保存标注图片 + 每个框的坐标 ═══
     out_dir = Path(r"d:\vision_algo_workspace\vision-bootcamp\03_practice_yolo\predict_output")
     out_dir.mkdir(parents=True, exist_ok=True)
-
+    
     # 用最后一次推理的结果（r_pt）
     result = r_pt[0]
     boxes = result.boxes

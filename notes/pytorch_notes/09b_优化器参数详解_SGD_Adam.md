@@ -130,3 +130,13 @@ torch.optim.AdamW(model.parameters(), lr=0.001, weight_decay=1e-4)
 - Adam lr×10 仍然稳定
 - momentum 平滑震荡
 - weight_decay 拉近终点
+
+---
+
+## 复习速答
+
+- `SGD`：统一学习率更新所有参数。
+- `Adam`：给每个参数自适应步长。
+- `momentum`：保留历史方向，减少震荡。
+- `weight_decay`：把参数往 0 拉，防过拟合。
+- `AdamW`：更推荐的带权重衰减版本。

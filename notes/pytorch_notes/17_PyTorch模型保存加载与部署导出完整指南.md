@@ -297,3 +297,13 @@ model.export(format="openvino")       # 导出 OpenVINO
 - PyTorch ONNX 导出文档：https://pytorch.org/docs/stable/onnx.html
 - Ultralytics 导出文档：https://docs.ultralytics.com/modes/export/
 - 你已有的实战脚本：`02_export_deploy/01_export.py`, `02_onnx_inference.py`
+
+---
+
+## 复习速答
+
+- `state_dict` 保存什么：只保存参数。
+- `torch.save(model.state_dict())`：最推荐的保存方式。
+- `load_state_dict()`：把参数灌进同结构模型。
+- `torch.save(model)`：直接保存整个模型对象，不太推荐。
+- `ONNX`：更适合部署推理的通用格式。

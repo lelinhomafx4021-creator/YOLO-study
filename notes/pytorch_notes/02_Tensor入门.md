@@ -200,3 +200,13 @@ x = torch.from_numpy(n)        # tensor([1, 2, 3])
 | 移到GPU | `x.to('cuda')` | 移到显卡 |
 
 **先记住这些，够用了。** 后面用到再查。
+
+---
+
+## 复习速答
+
+- `Tensor`：PyTorch 的多维数组。
+- `shape`：Tensor 的维度大小。
+- `to('cuda')`：把 Tensor 放到显卡上算。
+- `view/reshape`：改形状，`reshape` 更智能。
+- `transpose/permute`：换维度顺序，`permute` 更自由。

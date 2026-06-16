@@ -185,3 +185,13 @@ if 'train_args' in ckpt:
           f"batch={ckpt['train_args'].get('batch')}, "
           f"epochs={ckpt['train_args'].get('epochs')}")
 ```
+
+---
+
+## 复习速答
+
+- `best.pt`：训练好的权重文件，通常包含模型和相关信息。
+- `state_dict`：模型参数字典。
+- `torch.save`：把参数或 checkpoint 存成文件。
+- `torch.load`：把保存的权重读回来。
+- `YOLO("best.pt")`：直接加载整套权重和结构信息。

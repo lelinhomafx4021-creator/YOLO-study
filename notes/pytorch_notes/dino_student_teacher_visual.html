@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>DINO Student/Teacher 可视化 — 自监督怎么学特征</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: "Microsoft YaHei", sans-serif; background: #0a0a1a; color: #e0e0e0; padding: 20px; }
+  h1 { text-align: center; color: #00d4ff; font-size: 26px; margin-bottom: 8px; }
+  .subtitle { text-align: center; color: #888; margin-bottom: 30px; font-size: 14px; }
+  .section { max-width: 900px; margin: 0 auto 25px; }
+  .section h2 { color: #ffcc00; font-size: 18px; margin-bottom: 10px; border-left: 4px solid #ffcc00; padding-left: 10px; }
+  .step-box { background: #1a1a2e; border-radius: 10px; padding: 18px; margin-bottom: 12px; border: 1px solid #333; }
+  .step-label { display: inline-block; background: #ff6b35; color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; margin-bottom: 8px; }
+  .explain { color: #aaa; font-size: 14px; line-height: 1.8; margin: 8px 0; }
+  .explain strong { color: #ffcc00; }
+  .explain em { color: #00d4ff; font-style: normal; }
+  .btn { background: #2a2a4a; border: 2px solid #00d4ff; color: #00d4ff; padding: 8px 18px; border-radius: 6px; font-size: 14px; cursor: pointer; margin: 4px; transition: all 0.3s; }
+  .btn:hover { background: #00d4ff; color: #0a0a1a; }
+  .controls { text-align: center; margin: 12px 0; }
+  .formula { text-align: center; background: #1a1a2e; padding: 12px; border-radius: 8px; margin: 10px 0; font-size: 15px; color: #ffcc00; border: 1px solid #444; }
+  .flow { display: flex; align-items: center; justify-content: center; gap: 15px; flex-wrap: wrap; margin: 15px 0; }
+  .flow-box { padding: 12px 18px; border-radius: 8px; text-align: center; font-size: 13px; min-width: 100px; }
+  .flow-arrow { color: #666; font-size: 20px; }
+  .crop { display: inline-block; border: 3px solid; border-radius: 8px; padding: 8px; margin: 5px; text-align: center; font-size: 12px; }
+  .network { display: inline-block; padding: 15px 20px; border-radius: 10px; text-align: center; margin: 5px; }
+  .loss-display { text-align: center; margin: 15px 0; }
+  .loss-bar { display: flex; align-items: center; gap: 8px; margin: 5px auto; max-width: 400px; }
+  .loss-label { width: 120px; font-size: 13px; color: #aaa; text-align: right; }
+  .loss-fill { height: 24px; border-radius: 4px; transition: width 1s; }
+  .loss-value { width: 60px; font-size: 13px; }
+  .step-indicator { display: flex; justify-content: center; gap: 8px; margin: 15px 0; }
+  .step-dot { width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold; cursor: pointer; transition: all 0.3s; }
+  .step-dot.active { transform: scale(1.2); }
+  .timeline { position: relative; margin: 20px 0; }
+  .timeline-bar { height: 4px; background: #333; border-radius: 2px; margin: 0 20px; }
+  .timeline-fill { height: 100%; background: #00d4ff; border-radius: 2px; transition: width 0.5s; }
+  .timeline-labels { display: flex; justify-content: space-between; margin: 5px 20px; font-size: 11px; color: #888; }
+</style>
+</head>
+<body>
+
+<h1>DINO Student/Teacher 可视化</h1>
+<p class="subtitle">不用标签，怎么训练出好的视觉特征</p>
+
+<div class="section">
+  <h2>核心想法</h2>
+  <div class="step-box">
+    <p class="explain">同一张图的不同裁剪 → 特征应该相似。<br>
+    不同图的裁剪 → 特征应该不同。<br>
+    <strong>不需要任何标签。</strong></p>
+    <div style="text-align:center; margin:15px 0;">
+      <div class="crop" style="border-color:#ff6b35; width:120px; height:120px; background:#2a1a1a; display:inline-flex; align-items:center; justify-content:center;">
+        <div>
+          <div style="font-size:24px;">🐱</div>
+          <div style="color:#ff6b35; margin-top:5px;">大裁剪 (Global)</div>
+        </div>
+      </div>
+      <div style="display:inline-block; margin:0 15px; color:#888; font-size:13px;">同一张图<br>的不同<br>裁剪</div>
+      <div class="crop" style="border-color:#00d4ff; width:80px; height:80px; background:#1a2a2a; display:inline-flex; align-items:center; justify-content:center;">
+        <div>
+          <div style="font-size:16px;">🐱</div>
+          <div style="color:#00d4ff; margin-top:3px; font-size:11px;">小裁剪 (Local)</div>
+        </div>
+      </div>
+      <div style="margin-top:10px; color:#ffcc00; font-size:14px;">→ 两个裁剪的特征应该相似</div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h2>训练流程</h2>
+  <div class="step-box">
+    <span class="step-label">前向传播</span>
+    <div class="flow">
+      <div class="crop" style="border-color:#ff6b35;">
+        <div style="font-size:20px;">🐱</div>
+        <div style="color:#ff6b35;">大裁剪</div>
+      </div>
+      <div class="flow-arrow">→</div>
+      <div class="network" style="background:#2a2a4a; border:2px solid #00d4ff;">
+        <div style="color:#00d4ff; font-weight:bold;">Student</div>
+        <div style="font-size:11px; color:#888;">ViT</div>
+      </div>
+      <div class="flow-arrow">→</div>
+      <div style="padding:10px; background:#1a2a1a; border:2px solid #00ff88; border-radius:8px;">
+        <div style="color:#00ff88; font-size:12px;">输出 A</div>
+        <div style="font-size:11px; color:#888;">[0.3, -0.5, 0.8, ...]</div>
+      </div>
+    </div>
+    <div class="flow">
+      <div class="crop" style="border-color:#00d4ff;">
+        <div style="font-size:16px;">🐱</div>
+        <div style="color:#00d4ff; font-size:11px;">小裁剪</div>
+      </div>
+      <div class="flow-arrow">→</div>
+      <div class="network" style="background:#2a2a4a; border:2px solid #cc66ff;">
+        <div style="color:#cc66ff; font-weight:bold;">Teacher</div>
+        <div style="font-size:11px; color:#888;">ViT (EMA)</div>
+      </div>
+      <div class="flow-arrow">→</div>
+      <div style="padding:10px; background:#1a2a1a; border:2px solid #00ff88; border-radius:8px;">
+        <div style="color:#00ff88; font-size:12px;">输出 B</div>
+        <div style="font-size:11px; color:#888;">[0.2, -0.4, 0.7, ...]</div>
+      </div>
+    </div>
+    <div class="formula">
+      Loss = CrossEntropy(输出A, 输出B)
+      <br><span style="color:#888; font-size:12px;">让 A 和 B 尽量一致</span>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h2>为什么需要两个网络</h2>
+  <div class="step-box">
+    <p class="explain">如果只有一个网络，它会学到"不管输入什么，都输出一样的特征"。<br>
+    这样 Loss=0，但什么都没学到（坍缩）。</p>
+    <div style="text-align:center; margin:15px 0;">
+      <div style="display:inline-block; background:#4a2a2a; border:2px solid #ff4444; border-radius:8px; padding:12px 18px; margin:5px;">
+        <div style="color:#ff4444; font-weight:bold;">❌ 只有一个网络</div>
+        <div style="font-size:12px; color:#aaa; margin-top:5px;">"不管输入什么，都输出 [0.5, 0.5, 0.5]"<br>Loss=0，但什么都没学到</div>
+      </div>
+    </div>
+    <p class="explain"><strong>Teacher 是 Student 的 EMA（指数移动平均）。</strong><br>
+    Student 在努力学习，Teacher 是 Student 的"慢版本"，提供稳定的目标。</p>
+    <div class="formula">
+      Teacher = 0.996 × Teacher + 0.004 × Student
+      <br><span style="color:#888; font-size:12px;">每步更新一点点，比 Student 稳定</span>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h2>训练过程模拟</h2>
+  <div class="step-box">
+    <span class="step-label">交互</span>
+    <p class="explain">点击"下一步"看训练过程中 Loss 和特征的变化：</p>
+    <div class="controls">
+      <button class="btn" onclick="trainStep()">下一步</button>
+      <button class="btn" onclick="resetTrain()">重置</button>
+    </div>
+    <div class="step-indicator" id="step-indicator"></div>
+    <div class="loss-display" id="loss-display"></div>
+    <div style="text-align:center; margin:10px 0;" id="feature-display"></div>
+    <p id="train-explain" class="explain" style="min-height:60px;"></p>
+  </div>
+</div>
+
+<div class="section">
+  <h2>DINO 学到了什么</h2>
+  <div class="step-box">
+    <p class="explain">训练完后，DINO 的注意力图精准地集中在物体轮廓上。<br>
+    即使从没见过这个类别的标注，也知道"物体在这里"。</p>
+    <div style="text-align:center; margin:15px 0;">
+      <div style="display:inline-block; margin:10px; text-align:center;">
+        <div style="width:150px; height:150px; background:linear-gradient(135deg, #ff4444 0%, #ff4444 30%, #444444 30%); border-radius:8px; display:flex; align-items:center; justify-content:center;">
+          <span style="color:#fff; font-weight:bold; text-shadow:1px 1px 2px #000;">🐱</span>
+        </div>
+        <div style="color:#aaa; font-size:12px; margin-top:5px;">监督学习的注意力</div>
+      </div>
+      <div style="display:inline-block; margin:10px; text-align:center;">
+        <div style="width:150px; height:150px; background:radial-gradient(ellipse at 40% 40%, #ff4444 0%, #ff4444 50%, transparent 50%); border:2px solid #ff4444; border-radius:8px; display:flex; align-items:center; justify-content:center;">
+          <span style="color:#fff; font-weight:bold; text-shadow:1px 1px 2px #000;">🐱</span>
+        </div>
+        <div style="color:#ffcc00; font-size:12px; margin-top:5px;">DINO 的注意力 ← 精准！</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h2>总结</h2>
+  <div class="step-box" style="text-align:center;">
+    <div class="formula" style="font-size:14px;">
+      同一图的不同裁剪 → 特征应该相似<br>
+      Student 学习，Teacher 提供稳定目标（EMA）<br>
+      不用任何标签 → 学到"通用视觉特征"
+    </div>
+  </div>
+</div>
+
+<script>
+let trainStep_ = 0;
+const steps = [
+  { loss: 2.5, desc: "刚开始：Student 和 Teacher 的输出差异很大，Loss 高。特征是随机的。", studentFeat: [0.1, 0.3, 0.5], teacherFeat: [0.8, 0.2, 0.6] },
+  { loss: 1.8, desc: "Student 开始追赶 Teacher。特征逐渐对齐。Teacher 缓慢更新。", studentFeat: [0.2, 0.35, 0.55], teacherFeat: [0.75, 0.25, 0.58] },
+  { loss: 1.2, desc: "特征越来越接近。Student 学到了'同一图的不同裁剪应该相似'。", studentFeat: [0.4, 0.4, 0.5], teacherFeat: [0.55, 0.38, 0.52] },
+  { loss: 0.6, desc: "特征已经很接近了。Teacher 也在缓慢跟进 Student。", studentFeat: [0.48, 0.42, 0.51], teacherFeat: [0.50, 0.43, 0.51] },
+  { loss: 0.2, desc: "收敛！Student 和 Teacher 的输出几乎一致。特征质量很高，包含了物体的语义信息。", studentFeat: [0.50, 0.45, 0.50], teacherFeat: [0.50, 0.45, 0.50] }
+];
+
+function renderStepIndicator() {
+  const el = document.getElementById("step-indicator");
+  el.innerHTML = steps.map((_, i) =>
+    `<div class="step-dot ${i <= trainStep_ ? 'active' : ''}" style="background:${i <= trainStep_ ? '#00d4ff' : '#333'}; color:${i <= trainStep_ ? '#0a0a1a' : '#888'};">${i+1}</div>`
+  ).join("");
+}
+
+function renderLoss() {
+  const el = document.getElementById("loss-display");
+  const step = steps[trainStep_];
+  const pct = (step.loss / 2.5 * 100).toFixed(0);
+  el.innerHTML = `<div class="loss-bar">
+    <div class="loss-label">Loss:</div>
+    <div style="flex:1; background:#2a2a4a; border-radius:4px; overflow:hidden;">
+      <div class="loss-fill" style="width:${pct}%; background:${step.loss > 1 ? '#ff4444' : step.loss > 0.5 ? '#ffcc00' : '#00ff88'};"></div>
+    </div>
+    <div class="loss-value" style="color:${step.loss > 1 ? '#ff4444' : step.loss > 0.5 ? '#ffcc00' : '#00ff88'};">${step.loss.toFixed(1)}</div>
+  </div>`;
+}
+
+function renderFeatures() {
+  const el = document.getElementById("feature-display");
+  const step = steps[trainStep_];
+  el.innerHTML = `
+    <div style="display:inline-block; margin:0 10px;">
+      <div style="color:#00d4ff; font-size:12px; margin-bottom:5px;">Student 特征</div>
+      <div style="display:flex; gap:3px;">
+        ${step.studentFeat.map(v => `<div style="width:30px; height:30px; background:#00d4ff; opacity:${v}; border-radius:4px;"></div>`).join("")}
+      </div>
+      <div style="font-size:11px; color:#888; margin-top:3px;">[${step.studentFeat.map(v=>v.toFixed(2)).join(", ")}]</div>
+    </div>
+    <div style="display:inline-block; margin:0 10px;">
+      <div style="color:#cc66ff; font-size:12px; margin-bottom:5px;">Teacher 特征</div>
+      <div style="display:flex; gap:3px;">
+        ${step.teacherFeat.map(v => `<div style="width:30px; height:30px; background:#cc66ff; opacity:${v}; border-radius:4px;"></div>`).join("")}
+      </div>
+      <div style="font-size:11px; color:#888; margin-top:3px;">[${step.teacherFeat.map(v=>v.toFixed(2)).join(", ")}]</div>
+    </div>
+  `;
+}
+
+function trainStep() {
+  if (trainStep_ < steps.length - 1) trainStep_++;
+  renderStepIndicator();
+  renderLoss();
+  renderFeatures();
+  document.getElementById("train-explain").innerHTML = steps[trainStep_].desc;
+}
+
+function resetTrain() {
+  trainStep_ = 0;
+  renderStepIndicator();
+  renderLoss();
+  renderFeatures();
+  document.getElementById("train-explain").innerHTML = "点击"下一步"开始训练。";
+}
+
+renderStepIndicator();
+renderLoss();
+renderFeatures();
+document.getElementById("train-explain").innerHTML = "点击"下一步"开始训练。";
+</script>
+
+</body>
+</html>

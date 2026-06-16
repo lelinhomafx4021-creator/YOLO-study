@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>ViT Patch Embedding 可视化 — 图片怎么变成"词"</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: "Microsoft YaHei", sans-serif; background: #0a0a1a; color: #e0e0e0; padding: 20px; }
+  h1 { text-align: center; color: #00d4ff; font-size: 26px; margin-bottom: 8px; }
+  .subtitle { text-align: center; color: #888; margin-bottom: 30px; font-size: 14px; }
+  .section { max-width: 900px; margin: 0 auto 25px; }
+  .section h2 { color: #ffcc00; font-size: 18px; margin-bottom: 10px; border-left: 4px solid #ffcc00; padding-left: 10px; }
+  .step-box { background: #1a1a2e; border-radius: 10px; padding: 18px; margin-bottom: 12px; border: 1px solid #333; }
+  .step-label { display: inline-block; background: #ff6b35; color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; margin-bottom: 8px; }
+  .explain { color: #aaa; font-size: 14px; line-height: 1.8; margin: 8px 0; }
+  .explain strong { color: #ffcc00; }
+  .explain em { color: #00d4ff; font-style: normal; }
+  .btn { background: #2a2a4a; border: 2px solid #00d4ff; color: #00d4ff; padding: 8px 18px; border-radius: 6px; font-size: 14px; cursor: pointer; margin: 4px; transition: all 0.3s; }
+  .btn:hover { background: #00d4ff; color: #0a0a1a; }
+  .controls { text-align: center; margin: 12px 0; }
+  .image-grid { display: inline-grid; gap: 1px; background: #333; border: 2px solid #555; border-radius: 4px; overflow: hidden; }
+  .pixel { width: 20px; height: 20px; transition: all 0.3s; cursor: pointer; }
+  .pixel:hover { transform: scale(1.2); z-index: 10; }
+  .patch-highlight { outline: 3px solid #ffcc00; outline-offset: -1px; z-index: 5; }
+  .patch-group { display: inline-block; margin: 8px; vertical-align: top; }
+  .patch-label { text-align: center; font-size: 12px; color: #ffcc00; margin-bottom: 4px; }
+  .patch-box { display: inline-grid; gap: 1px; background: #222; border: 2px solid #ffcc00; border-radius: 4px; overflow: hidden; }
+  .patch-pixel { width: 12px; height: 12px; }
+  .arrow { text-align: center; color: #666; font-size: 20px; margin: 8px 0; }
+  .vector { display: inline-flex; flex-direction: column; background: #1a2a1a; border: 2px solid #00ff88; border-radius: 6px; padding: 8px 12px; margin: 5px; font-size: 12px; }
+  .vector .label { color: #00ff88; font-size: 11px; margin-bottom: 3px; }
+  .sequence { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; justify-content: center; margin: 15px 0; }
+  .seq-item { display: flex; flex-direction: column; align-items: center; }
+  .seq-block { width: 50px; height: 30px; display: flex; align-items: center; justify-content: center; border-radius: 6px; font-size: 11px; font-weight: bold; }
+  .cls-block { background: #cc66ff30; border: 2px solid #cc66ff; color: #cc66ff; }
+  .patch-block { background: #00d4ff20; border: 2px solid #00d4ff; color: #00d4ff; }
+  .pos-block { background: #ff6b3520; border: 2px dashed #ff6b35; color: #ff6b35; }
+  .formula { text-align: center; background: #1a1a2e; padding: 12px; border-radius: 8px; margin: 10px 0; font-size: 15px; color: #ffcc00; border: 1px solid #444; }
+  .highlight-patch { transition: all 0.3s; }
+  .legend { display: flex; justify-content: center; gap: 15px; margin: 12px 0; font-size: 12px; flex-wrap: wrap; }
+  .legend span { display: flex; align-items: center; gap: 5px; }
+  .legend .dot { width: 10px; height: 10px; border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<h1>ViT Patch Embedding 可视化</h1>
+<p class="subtitle">图片怎么切成 patch，再变成 Transformer 能吃的"词"序列</p>
+
+<div class="section">
+  <h2>原始图片</h2>
+  <div class="step-box">
+    <p class="explain">用一张 <strong>8×8</strong> 的简化图（实际 ViT 用 224×224）。每个格子是一个像素，颜色代表 RGB 值。</p>
+    <div style="text-align:center;">
+      <div class="image-grid" id="original-image"></div>
+    </div>
+    <p class="explain">鼠标悬停看像素值。这是模型的原始输入。</p>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Step 1: 切成 Patch</h2>
+  <div class="step-box">
+    <span class="step-label">切块</span>
+    <p class="explain">把 8×8 的图切成 <strong>4×4 的 patch</strong>（每个 patch 是 2×2 像素）。<br>
+    8÷2 = 4 → 横向 4 块，纵向 4 块 → 共 <strong>16 个 patch</strong>。</p>
+    <div class="controls">
+      <button class="btn" onclick="showPatch(-1)">原始图</button>
+      <button class="btn" onclick="showPatch(0)">Patch 0</button>
+      <button class="btn" onclick="showPatch(1)">Patch 1</button>
+      <button class="btn" onclick="showPatch(2)">Patch 2</button>
+      <button class="btn" onclick="showPatch(3)">Patch 3</button>
+      <button class="btn" onclick="showAllPatches()">看所有 Patch</button>
+    </div>
+    <div style="text-align:center;">
+      <div class="image-grid" id="patched-image"></div>
+    </div>
+    <p id="patch-info" style="color:#aaa; font-size:13; min-height:40px; text-align:center; margin-top:8px;"></p>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Step 2: 展平成向量</h2>
+  <div class="step-box">
+    <span class="step-label">展平</span>
+    <p class="explain">每个 2×2 的 patch 展平成一个 <strong>4 维向量</strong>（实际是 16×16×3 = 768 维）。<br>
+    Patch 的像素排列成一行 → 就是一个向量。</p>
+    <div id="flatten-display" style="text-align:center; margin:12px 0;"></div>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Step 3: 加上 CLS Token + 位置编码</h2>
+  <div class="step-box">
+    <span class="step-label">组装</span>
+    <p class="explain">
+      <strong>CLS Token</strong>: 最前面加一个可学习的特殊向量（紫色），不对应任何 patch。经过 Transformer 后，它的输出就是分类结果。<br>
+      <strong>位置编码</strong>: 每个向量加上位置信号（橙色虚线），告诉 Transformer 每个 patch 在图里的位置。
+    </p>
+    <div class="sequence" id="sequence-display"></div>
+    <div class="formula">
+      输入 = [CLS] + Patch_0 + Patch_1 + ... + Patch_15 + 位置编码
+      <br><span style="color:#888; font-size:12px;">共 17 个向量（1 CLS + 16 patch），每个 4 维（实际 768 维）</span>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Step 4: 送入 Transformer Encoder</h2>
+  <div class="step-box">
+    <p class="explain">17 个向量 → Transformer Encoder × 12 层 → 取 CLS Token 的输出 → Linear → 类别概率。</p>
+    <div style="text-align:center; margin:12px 0;">
+      <div style="display:inline-block; background:#1a1a2e; border:2px solid #555; border-radius:8px; padding:15px 25px;">
+        <span style="color:#cc66ff;">[CLS]</span> <span style="color:#00d4ff;">[P0]</span> <span style="color:#00d4ff;">[P1]</span> <span style="color:#888;">...</span> <span style="color:#00d4ff;">[P15]</span>
+        <br><span style="color:#888; font-size:12px;">↓ Transformer Encoder × 12 ↓</span>
+        <br><span style="color:#cc66ff; font-weight:bold;">[CLS输出]</span> <span style="color:#888;">→ Linear → 类别</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h2>完整流程</h2>
+  <div class="step-box" style="text-align:center;">
+    <div class="formula" style="font-size:14px;">
+      图片 224×224 → 切成 16×16 patch → 196 个 patch<br>
+      → 展平成 768 维向量 → 加 CLS Token + 位置编码 → 197 个向量<br>
+      → Transformer Encoder × 12 → 取 CLS 输出 → 分类
+    </div>
+  </div>
+</div>
+
+<div class="legend">
+  <span><div class="dot" style="background:#cc66ff;"></div> CLS Token</span>
+  <span><div class="dot" style="background:#00d4ff;"></div> Patch 向量</span>
+  <span><div class="dot" style="background:#ff6b35;"></div> 位置编码</span>
+</div>
+
+<script>
+// 8x8 图片数据 (简化RGB)
+const imgData = [
+  [[200,50,50],[210,55,55],[180,60,50],[170,55,45],[100,100,200],[110,105,210],[95,95,195],[90,90,190]],
+  [[205,52,52],[215,58,58],[175,62,52],[165,58,48],[105,102,205],[115,108,215],[98,98,198],[92,92,192]],
+  [[50,180,50],[55,185,55],[60,190,60],[65,195,65],[200,200,50],[205,205,55],[210,210,60],[215,215,65]],
+  [[52,175,52],[58,180,58],[62,185,62],[68,190,68],[202,202,52],[207,207,57],[212,212,62],[217,217,67]],
+  [[150,50,150],[155,55,155],[160,60,160],[165,65,165],[50,150,200],[55,155,205],[60,160,210],[65,165,215]],
+  [[152,52,152],[157,57,157],[162,62,162],[167,67,167],[52,152,202],[57,157,207],[62,162,212],[67,167,217]],
+  [[220,180,50],[222,182,55],[224,184,60],[226,186,65],[180,50,180],[182,52,182],[184,54,184],[186,56,186]],
+  [[218,178,52],[220,180,57],[222,182,62],[224,184,67],[178,52,178],[180,54,180],[182,56,182],[184,58,184]]
+];
+
+// patch 颜色
+const patchColors = [
+  "#ff4444","#ff4444","#ff4444","#ff4444",
+  "#4444ff","#4444ff","#4444ff","#4444ff",
+  "#44ff44","#44ff44","#44ff44","#44ff44",
+  "#ffff44","#ffff44","#ffff44","#ffff44"
+];
+
+function rgbStr(r,g,b) { return `rgb(${r},${g},${b})`; }
+
+// 渲染原始图片
+function renderOriginal() {
+  const el = document.getElementById("original-image");
+  el.style.gridTemplateColumns = `repeat(8, 20px)`;
+  el.innerHTML = imgData.flat().map((px, i) =>
+    `<div class="pixel" style="background:${rgbStr(...px)}" title="${px}"></div>`
+  ).join("");
+}
+
+// 渲染带 patch 边框的图片
+function renderPatched() {
+  const el = document.getElementById("patched-image");
+  el.style.gridTemplateColumns = `repeat(8, 20px)`;
+  let html = "";
+  for (let r = 0; r < 8; r++) {
+    for (let c = 0; c < 8; c++) {
+      const px = imgData[r][c];
+      const patchIdx = Math.floor(r/2)*4 + Math.floor(c/2);
+      const border = `border-right:${c%2===1?'1px':'0'} solid #555; border-bottom:${r%2===1?'1px':'0'} solid #555;`;
+      html += `<div class="pixel highlight-patch" id="px-${r}-${c}" style="background:${rgbStr(...px)}; ${border}" data-patch="${patchIdx}"></div>`;
+    }
+  }
+  el.innerHTML = html;
+}
+
+function showPatch(idx) {
+  // 重置所有
+  document.querySelectorAll(".highlight-patch").forEach(el => {
+    el.style.outline = "none";
+    el.style.opacity = "0.3";
+  });
+
+  if (idx === -1) {
+    document.querySelectorAll(".highlight-patch").forEach(el => {
+      el.style.opacity = "1";
+    });
+    document.getElementById("patch-info").innerHTML = "";
+    return;
+  }
+
+  // 高亮选中的 patch
+  document.querySelectorAll(`[data-patch="${idx}"]`).forEach(el => {
+    el.style.outline = "3px solid #ffcc00";
+    el.style.opacity = "1";
+  });
+
+  // 显示 patch 的像素值
+  const pr = Math.floor(idx/4)*2, pc = (idx%4)*2;
+  const p0 = imgData[pr][pc], p1 = imgData[pr][pc+1];
+  const p2 = imgData[pr+1][pc], p3 = imgData[pr+1][pc+1];
+  document.getElementById("patch-info").innerHTML =
+    `Patch ${idx}: [${p0}] [${p1}] [${p2}] [${p3}] → 展平成 [${p0[0]},${p0[1]},${p0[2]}, ${p1[0]},${p1[1]},${p1[2]}, ${p2[0]},${p2[1]},${p2[2]}, ${p3[0]},${p3[1]},${p3[2]}] (12维)`;
+}
+
+function showAllPatches() {
+  document.querySelectorAll(".highlight-patch").forEach(el => {
+    const idx = parseInt(el.dataset.patch);
+    el.style.outline = `2px solid ${patchColors[idx]}`;
+    el.style.opacity = "1";
+  });
+  document.getElementById("patch-info").innerHTML = "16 个 patch，每个 2×2 像素，展平成 12 维向量（实际 16×16×3 = 768 维）";
+}
+
+// 展平展示
+function renderFlatten() {
+  const el = document.getElementById("flatten-display");
+  const pr = 0, pc = 0; // 用 patch 0 演示
+  const pixels = [imgData[pr][pc], imgData[pr][pc+1], imgData[pr+1][pc], imgData[pr+1][pc+1]];
+  el.innerHTML = `
+    <div style="display:inline-flex; gap:3px; align-items:center;">
+      ${pixels.map((px,i) => `<div style="width:30px; height:30px; background:${rgbStr(...px)}; border-radius:4px; display:flex; align-items:center; justify-content:center; font-size:9px; color:#fff;">${i}</div>`).join("")}
+    </div>
+    <div style="color:#666; margin:5px 0;">↓ 展平</div>
+    <div class="vector">
+      <div class="label">Patch 0</div>
+      <div>[${pixels.map(px=>px.join(",")).join(", ")}]</div>
+    </div>
+  `;
+}
+
+// 序列展示
+function renderSequence() {
+  const el = document.getElementById("sequence-display");
+  let html = `<div class="seq-item"><div class="seq-block cls-block">CLS</div><div style="font-size:10px; color:#cc66ff;">可学习</div></div>`;
+  for (let i = 0; i < 16; i++) {
+    html += `<div class="seq-item"><div class="seq-block patch-block">P${i}</div><div style="font-size:10px; color:#00d4ff;">patch${i}</div></div>`;
+  }
+  el.innerHTML = html;
+}
+
+renderOriginal();
+renderPatched();
+renderFlatten();
+renderSequence();
+</script>
+
+</body>
+</html>

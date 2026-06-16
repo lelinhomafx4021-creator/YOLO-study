@@ -98,3 +98,13 @@ model.export(format="openvino", imgsz=640)                          # OpenVINO
 # best_fp16.onnx ≈ 2.5-5 MB → FP16 半精度
 # best.engine  ≈ 8-20 MB → TensorRT (NVIDIA 专用,最快)
 ```
+
+---
+
+## 复习速答
+
+- `simplify=True`：简化 ONNX 图。
+- `half=True`：用 FP16 半精度导出。
+- `imgsz`：导出时使用的输入尺寸。
+- `ONNX`：给通用部署场景用。
+- `TensorRT`：给 NVIDIA GPU 高性能部署用。

@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>DETR Object Query 可视化 — Query 怎么找到物体</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: "Microsoft YaHei", sans-serif; background: #0a0a1a; color: #e0e0e0; padding: 20px; }
+  h1 { text-align: center; color: #00d4ff; font-size: 26px; margin-bottom: 8px; }
+  .subtitle { text-align: center; color: #888; margin-bottom: 30px; font-size: 14px; }
+  .section { max-width: 900px; margin: 0 auto 25px; }
+  .section h2 { color: #ffcc00; font-size: 18px; margin-bottom: 10px; border-left: 4px solid #ffcc00; padding-left: 10px; }
+  .step-box { background: #1a1a2e; border-radius: 10px; padding: 18px; margin-bottom: 12px; border: 1px solid #333; }
+  .step-label { display: inline-block; background: #ff6b35; color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; margin-bottom: 8px; }
+  .explain { color: #aaa; font-size: 14px; line-height: 1.8; margin: 8px 0; }
+  .explain strong { color: #ffcc00; }
+  .explain em { color: #00d4ff; font-style: normal; }
+  .btn { background: #2a2a4a; border: 2px solid #00d4ff; color: #00d4ff; padding: 8px 16px; border-radius: 6px; font-size: 13px; cursor: pointer; margin: 3px; transition: all 0.3s; }
+  .btn:hover { background: #00d4ff; color: #0a0a1a; }
+  .btn.active { background: #00d4ff; color: #0a0a1a; }
+  .controls { text-align: center; margin: 12px 0; }
+  .canvas-container { text-align: center; margin: 15px 0; }
+  canvas { border: 1px solid #333; border-radius: 8px; }
+  .formula { text-align: center; background: #1a1a2e; padding: 12px; border-radius: 8px; margin: 10px 0; font-size: 15px; color: #ffcc00; border: 1px solid #444; }
+  .query-list { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin: 12px 0; }
+  .query-card { padding: 8px 14px; border-radius: 6px; font-size: 13px; cursor: pointer; transition: all 0.3s; }
+  .query-card:hover { transform: scale(1.05); }
+  .query-card.active { box-shadow: 0 0 10px rgba(255,255,255,0.3); }
+  .result-box { display: inline-block; background: #1a2a1a; border: 2px solid #00ff88; border-radius: 8px; padding: 10px 15px; margin: 5px; text-align: center; }
+  .result-box .label { color: #00ff88; font-size: 12px; }
+  .result-box .value { color: #e0e0e0; font-size: 13px; margin-top: 3px; }
+  .no-obj { border-color: #666; color: #666; }
+  .no-obj .label { color: #666; }
+  .legend { display: flex; justify-content: center; gap: 15px; margin: 12px 0; font-size: 12px; flex-wrap: wrap; }
+  .legend span { display: flex; align-items: center; gap: 5px; }
+  .legend .dot { width: 10px; height: 10px; border-radius: 50%; }
+</style>
+</head>
+<body>
+
+<h1>DETR Object Query 可视化</h1>
+<p class="subtitle">Object Query 通过交叉注意力去图片里找物体</p>
+
+<div class="section">
+  <h2>场景：一张图里有 3 个物体</h2>
+  <div class="step-box">
+    <p class="explain">图里有：<strong>猫（左上）</strong>、<strong>球（右下）</strong>、<strong>骨头（中间）</strong>。<br>
+    DETR 预设了 5 个 Object Query。每个 Query 负责找一个物体。</p>
+    <div class="canvas-container">
+      <canvas id="scene-canvas" width="400" height="300"></canvas>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Step 1: Object Query 是什么</h2>
+  <div class="step-box">
+    <span class="step-label">Query</span>
+    <p class="explain">Object Query 是 <strong>5 个可学习的向量</strong>，每个 Query 带一个"初始位置偏好"。<br>
+    训练后，Query 1 可能学会"我负责找左上区域的物体"，Query 2 学会"我负责找右下区域"...</p>
+    <div class="query-list" id="query-list"></div>
+    <p class="explain">点击看每个 Query 的位置偏好。训练前是随机的，训练后会分化。</p>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Step 2: 交叉注意力 — Query 去图片里找</h2>
+  <div class="step-box">
+    <span class="step-label">交叉注意力</span>
+    <p class="explain">
+      <strong>Query 的 Q</strong> 去和<strong>图片特征的 K</strong> 做点积 → 算出"这个 Query 应该关注图片的哪些区域"。<br>
+      然后用注意力权重对<strong>图片特征的 V</strong> 做加权求和 → Query 拿到了它负责区域的信息。
+    </p>
+    <div class="formula">
+      Query输出 = Softmax(Q_query · K_image<sup>T</sup> / √d) · V_image
+    </div>
+    <p class="explain">选择一个 Query，看它关注图片的哪些区域：</p>
+    <div class="controls">
+      <button class="btn" onclick="selectQuery(0)">Query 1</button>
+      <button class="btn" onclick="selectQuery(1)">Query 2</button>
+      <button class="btn" onclick="selectQuery(2)">Query 3</button>
+      <button class="btn" onclick="selectQuery(3)">Query 4</button>
+      <button class="btn" onclick="selectQuery(4)">Query 5</button>
+    </div>
+    <div class="canvas-container">
+      <canvas id="attention-canvas" width="400" height="300"></canvas>
+    </div>
+    <p id="query-explain" class="explain" style="min-height:40px;"></p>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Step 3: Query 之间互相看（自注意力）</h2>
+  <div class="step-box">
+    <span class="step-label">自注意力</span>
+    <p class="explain">5 个 Query 之间做自注意力。<br>
+    Query 1 和 Query 2 都关注了左上区域 → 自注意力后它们知道"对方也在找左上" → 避免重复。</p>
+    <div class="query-list" id="query-interaction"></div>
+    <p class="explain">自注意力让不同的 Query 负责不同的物体，不会都去抢同一个。</p>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Step 4: 输出预测</h2>
+  <div class="step-box">
+    <span class="step-label">输出</span>
+    <p class="explain">每个 Query 经过 FFN 后输出一个预测：(框坐标, 类别)。<br>
+    训练时用匈牙利算法把 Query 和真实物体配对。没配上的 Query 输出 "no object"。</p>
+    <div id="output-display" style="text-align:center; margin:12px 0;"></div>
+    <div class="controls">
+      <button class="btn" onclick="showResults()">看最终输出</button>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h2>和 YOLO 的对比</h2>
+  <div class="step-box" style="text-align:center;">
+    <div class="formula" style="font-size:14px;">
+      <strong>YOLO:</strong> 每个格子预测 N 个框 → 几千个候选 → NMS 去重<br><br>
+      <strong>DETR:</strong> 5 个 Query 各找一个物体 → 5 个直接结果 → 不需要 NMS
+    </div>
+    <p class="explain" style="margin-top:10px;"><strong>DETR = 端到端，直接出结果。YOLO = 多步，需要后处理。</strong></p>
+  </div>
+</div>
+
+<div class="legend">
+  <span><div class="dot" style="background:#ff4444;"></div> 猫</span>
+  <span><div class="dot" style="background:#4444ff;"></div> 球</span>
+  <span><div class="dot" style="background:#44ff44;"></div> 骨头</span>
+  <span><div class="dot" style="background:#ffcc00;"></div> Query 注意力</span>
+</div>
+
+<script>
+const objects = [
+  { name: "猫", x: 100, y: 80, w: 60, h: 50, color: "#ff4444" },
+  { name: "球", x: 300, y: 200, w: 40, h: 40, color: "#4444ff" },
+  { name: "骨头", x: 200, y: 140, w: 50, h: 30, color: "#44ff44" }
+];
+
+const queries = [
+  { name: "Q1", prefX: 100, prefY: 80, color: "#ff6b35", target: 0 },
+  { name: "Q2", prefX: 300, prefY: 200, color: "#00d4ff", target: 1 },
+  { name: "Q3", prefX: 200, prefY: 140, color: "#cc66ff", target: 2 },
+  { name: "Q4", prefX: 350, prefY: 50, color: "#888888", target: -1 },
+  { name: "Q5", prefX: 50, prefY: 250, color: "#888888", target: -1 }
+];
+
+let selectedQuery = 0;
+
+function drawScene(canvasId, showAttention, queryIdx) {
+  const canvas = document.getElementById(canvasId);
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, 400, 300);
+
+  // 背景
+  ctx.fillStyle = "#1a1a2e";
+  ctx.fillRect(0, 0, 400, 300);
+
+  // 注意力热力图
+  if (showAttention && queryIdx !== undefined) {
+    const q = queries[queryIdx];
+    for (let r = 0; r < 300; r += 10) {
+      for (let c = 0; c < 400; c += 10) {
+        let weight = 0;
+        for (const obj of objects) {
+          const dx = c - obj.x, dy = r - obj.y;
+          const dist = Math.sqrt(dx*dx + dy*dy);
+          weight += Math.exp(-dist * dist / 8000);
+        }
+        // Query 偏好加权
+        const qdx = c - q.prefX, qdy = r - q.prefY;
+        const qdist = Math.sqrt(qdx*qdx + qdy*qdy);
+        weight *= Math.exp(-qdist * qdist / 20000);
+        weight = Math.min(1, weight);
+        ctx.fillStyle = `rgba(255, 204, 0, ${weight * 0.6})`;
+        ctx.fillRect(c, r, 10, 10);
+      }
+    }
+  }
+
+  // 画物体
+  for (const obj of objects) {
+    ctx.fillStyle = obj.color + "40";
+    ctx.strokeStyle = obj.color;
+    ctx.lineWidth = 2;
+    ctx.fillRect(obj.x - obj.w/2, obj.y - obj.h/2, obj.w, obj.h);
+    ctx.strokeRect(obj.x - obj.w/2, obj.y - obj.h/2, obj.w, obj.h);
+    ctx.fillStyle = obj.color;
+    ctx.font = "12px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(obj.name, obj.x, obj.y + 4);
+  }
+}
+
+function renderQueryList() {
+  const el = document.getElementById("query-list");
+  el.innerHTML = queries.map((q, i) => {
+    const isTarget = q.target >= 0;
+    return `<div class="query-card" id="qcard-${i}" onclick="selectQuery(${i})"
+      style="background:${q.color}20; border:2px solid ${q.color}; color:${q.color};">
+      ${q.name}<br><span style="font-size:11px;">${isTarget ? '找: '+objects[q.target].name : '无目标'}</span>
+    </div>`;
+  }).join("");
+}
+
+function selectQuery(idx) {
+  selectedQuery = idx;
+  document.querySelectorAll(".query-card").forEach((c, i) => {
+    c.classList.toggle("active", i === idx);
+  });
+  drawScene("attention-canvas", true, idx);
+  const q = queries[idx];
+  const target = q.target >= 0 ? objects[q.target].name : "无（输出 no object）";
+  document.getElementById("query-explain").innerHTML =
+    `<strong>${q.name}</strong> 的注意力集中在 <strong>${target}</strong> 附近。` +
+    (q.target >= 0 ? ` 它负责找到 ${target}。` : " 这个 Query 没有匹配到任何物体。");
+}
+
+function showResults() {
+  const el = document.getElementById("output-display");
+  el.innerHTML = queries.map((q, i) => {
+    if (q.target >= 0) {
+      const obj = objects[q.target];
+      return `<div class="result-box" style="border-color:${q.color};">
+        <div class="label" style="color:${q.color};">${q.name}</div>
+        <div class="value">${obj.name} (${obj.x},${obj.y})</div>
+      </div>`;
+    } else {
+      return `<div class="result-box no-obj">
+        <div class="label">${q.name}</div>
+        <div class="value">no object</div>
+      </div>`;
+    }
+  }).join("");
+}
+
+// 初始化
+drawScene("scene-canvas", false);
+drawScene("attention-canvas", false);
+renderQueryList();
+selectQuery(0);
+
+// Query 交互展示
+document.getElementById("query-interaction").innerHTML =
+  `<p class="explain" style="text-align:center;">Q1 和 Q3 都关注了中间区域 → 自注意力后 Q1 知道 Q3 也在找 → Q1 转向找左上 → 避免重复。</p>`;
+</script>
+
+</body>
+</html>
